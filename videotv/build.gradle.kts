@@ -94,4 +94,6 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
     // The video surface and its remote-friendly transport controls.
     implementation("androidx.media3:media3-ui:1.11.0")
+    // The phone-remote pairing code on the screen: drawn from this, read by the phone.
+    implementation("com.google.zxing:core:3.5.4")
 }

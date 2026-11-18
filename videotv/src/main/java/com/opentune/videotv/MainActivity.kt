@@ -6,16 +6,27 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.opentune.data.remote.PairedPhones
+import com.opentune.data.remote.PrefsStorage
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
     /** What was asked of the TV's voice search ("play … on OpenTune Videos"), until Root picks it up. */
     private val voice = MutableStateFlow<String?>(null)
+    private lateinit var remote: TvRemote
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         voice.value = spokenQuery(intent)
-        setContent { TvTheme { Root(voice) } }
+        // Paired phones find this TV and control it for as long as the app is open here.
+        remote = TvRemote(this, PairedPhones(PrefsStorage(this, "remote_phones")))
+        remote.start()
+        setContent { TvTheme { Root(voice, remote) } }
+    }
+
+    override fun onDestroy() {
+        remote.stop()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

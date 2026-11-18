@@ -182,7 +182,7 @@ private const val DEBOUNCE_MS = 450L
 // ---- Settings -----------------------------------------------------------------
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(remote: TvRemote?, onPair: () -> Unit) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = TvSafe.Horizontal, vertical = 12.dp),
@@ -217,6 +217,9 @@ fun SettingsScreen() {
                     TvPill("Off", selected = !VideoSettings.autoplay, onClick = { VideoSettings.chooseAutoplay(false) })
                 }
             }
+        }
+        if (remote != null) {
+            item { PhoneRemoteSettings(remote, onPair) }
         }
         item {
             Column {

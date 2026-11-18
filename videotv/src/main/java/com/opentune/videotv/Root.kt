@@ -1,6 +1,10 @@
 package com.opentune.videotv
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
 private enum class Tab(val label: String) { Home("Home"), Search("Search"), Settings("Settings") }
@@ -39,7 +44,7 @@ private enum class Tab(val label: String) { Home("Home"), Search("Search"), Sett
  * loaded is held here, so coming back from a video finds it as it was.
  */
 @Composable
-fun Root(voice: MutableStateFlow<String?>) {
+fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val session = remember { VideoSession(context.applicationContext, scope) }
@@ -60,6 +65,28 @@ fun Root(voice: MutableStateFlow<String?>) {
     }
 
     val search = remember { SearchState() }
+    var pairing by remember { mutableStateOf(false) }
+
+    // A paired phone's trackpad and buttons act on this screen; what's playing goes back to it.
+    val activity = LocalContext.current.findActivity()
+    if (remote != null && activity != null) {
+        val actions = remember(session) {
+            RemoteActions(
+                session = session,
+                goHome = { playing = false; pairing = false; tab = Tab.Home },
+                search = { q -> playing = false; pairing = false; tab = Tab.Search; search.query = q },
+            )
+        }
+        val input = remember(activity, actions, remote) { TvRemoteInput(activity, remote.pointer, actions) }
+        DisposableEffect(input) {
+            remote.attach(input)
+            onDispose { remote.detach(input) }
+        }
+        val phonesNow by remote.controllers.collectAsState()
+        LaunchedEffect(phonesNow.isNotEmpty(), input) {
+            while (phonesNow.isNotEmpty()) { remote.push(input.now()); delay(NOW_EVERY_MS) }
+        }
+    }
 
     // "Play … on OpenTune Videos" from the TV's voice search: search for it and play the first.
     val spoken by voice.collectAsState()
@@ -83,13 +110,46 @@ fun Root(voice: MutableStateFlow<String?>) {
         playing = true
     }
 
-    if (playing) {
-        PlayerScreen(session, onClose = {
-            session.pause()
-            playing = false
-        })
-        return
+    Box(Modifier.fillMaxSize()) {
+        when {
+            playing -> PlayerScreen(session, onClose = {
+                session.pause()
+                playing = false
+            })
+            pairing && remote != null -> PairPhoneScreen(remote, onClose = { pairing = false })
+            else -> Browse(
+                tab = tab,
+                onTab = { tab = it },
+                session = session,
+                onNowPlaying = { playing = true },
+                rows = rows,
+                homeList = homeList,
+                onRetry = { reload++ },
+                search = search,
+                remote = remote,
+                onPair = { pairing = true },
+                play = play,
+            )
+        }
+        // The phone's pointer, over everything.
+        if (remote != null) TvCursor(remote.pointer)
     }
+}
+
+@Composable
+private fun Browse(
+    tab: Tab,
+    onTab: (Tab) -> Unit,
+    session: VideoSession,
+    onNowPlaying: () -> Unit,
+    rows: Load<List<VideoRow>>,
+    homeList: androidx.compose.foundation.lazy.LazyListState,
+    onRetry: () -> Unit,
+    search: SearchState,
+    remote: TvRemote?,
+    onPair: () -> Unit,
+    play: (List<Video>, Int) -> Unit,
+) {
 
     val homeTab = remember { FocusRequester() }
     Column(Modifier.fillMaxSize().background(TvColors.Background)) {
@@ -104,22 +164,31 @@ fun Root(voice: MutableStateFlow<String?>) {
                 TvPill(
                     label = t.label,
                     selected = tab == t,
-                    onClick = { tab = t },
+                    onClick = { onTab(t) },
                     focusRequester = if (t == Tab.Home) homeTab else null,
                 )
             }
             Spacer(Modifier.weight(1f))
             if (session.current != null) {
-                TvButton("Now playing", onClick = { playing = true })
+                TvButton("Now playing", onClick = onNowPlaying)
             }
         }
         Spacer(Modifier.height(4.dp))
         when (tab) {
-            Tab.Home -> HomeScreen(rows, homeList, onRetry = { reload++ }, play = play)
+            Tab.Home -> HomeScreen(rows, homeList, onRetry = onRetry, play = play)
             Tab.Search -> SearchScreen(search, play)
-            Tab.Settings -> SettingsScreen()
+            Tab.Settings -> SettingsScreen(remote, onPair)
         }
     }
     // Somewhere for the remote to start from.
     LaunchedEffect(Unit) { runCatching { homeTab.requestFocus() } }
 }
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+/** How often a connected phone is told what's playing. */
+private const val NOW_EVERY_MS = 700L
