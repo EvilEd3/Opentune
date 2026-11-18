@@ -247,6 +247,68 @@ object InnerTubeXResolver {
         return extracted
     }
 
+    /** A video InnerTubeX found: picture and sound as separate files, or one HLS manifest. */
+    class ExtractedVideo(
+        val videoId: String,
+        val videoUrl: String,
+        /** Null when [isHls]: the manifest carries the sound too. */
+        val audioUrl: String?,
+        val isHls: Boolean,
+        val height: Int,
+        val videoCodecs: String?,
+        val videoLength: Long?,
+        val audioLength: Long?,
+        /** The largest range this client's URLs will serve in one request. */
+        val rangeChunkBytes: Long,
+        val clientName: String,
+        val profileId: String,
+        val headers: Map<String, String>,
+    )
+
+    /**
+     * The video counterpart of [extract], for the video app: InnerTubeX's own
+     * client walk and PoTokens, asked for picture as well as sound.
+     *
+     * SABR is left out (this player has no SABR source); HLS is allowed, as
+     * it is how some clients serve video at all.
+     *
+     * @return a video, or null when no client it would try serves one.
+     */
+    suspend fun extractVideo(
+        videoId: String,
+        maxHeight: Int,
+        skipProfiles: Set<String> = emptySet(),
+    ): ExtractedVideo? {
+        if (prefs == null) return null
+        bindSession()
+        val stream = extractor.extract(
+            videoId = videoId,
+            hints = ContentHints(wantVideo = true, maxVideoHeight = maxHeight)
+                .withStreamCapabilities(allowHls = true, allowSabr = false, allowBoundedRange = true),
+            excludedClients = excludedFor(videoId) + skipProfiles,
+            audioQuality = AudioQuality.MP4,
+            clientPlaybackNonce = generateClientPlaybackNonce(),
+        ) ?: return null
+        if (stream.sabrBootstrap != null || stream.sabrVideoBootstrap != null) return null
+        val isHls = stream.mimeType?.contains("mpegurl", ignoreCase = true) == true ||
+            stream.videoUrl == stream.audioUrl
+        val video = stream.videoUrl?.takeIf { it.startsWith("http") } ?: return null
+        return ExtractedVideo(
+            videoId = videoId,
+            videoUrl = video,
+            audioUrl = if (isHls) null else stream.audioUrl,
+            isHls = isHls,
+            height = stream.videoHeight ?: 0,
+            videoCodecs = stream.videoCodecs,
+            videoLength = stream.videoContentLengthBytes,
+            audioLength = stream.contentLengthBytes,
+            rangeChunkBytes = stream.rangeChunkSizeBytes.takeIf { it > 0 } ?: (1024L * 1024),
+            clientName = stream.clientName,
+            profileId = stream.profileId,
+            headers = stream.headers,
+        )
+    }
+
     /** Headers the media fetch for [url] must carry, when InnerTubeX minted it. */
     fun headersFor(url: String): Map<String, String>? = minted[url]?.headers
 

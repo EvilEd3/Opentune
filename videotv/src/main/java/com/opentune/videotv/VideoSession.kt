@@ -15,6 +15,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -22,6 +23,7 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.opentune.data.Http
+import com.opentune.data.TrackLog
 import com.opentune.data.innertube.VideoStreams
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -100,7 +102,6 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
 
     private var loading: Job? = null
     private var extending: Job? = null
-    private var retried = false
 
     init {
         exo.addListener(object : Player.Listener {
@@ -110,18 +111,45 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
 
             override fun onPlayerError(error: PlaybackException) {
                 val video = current ?: return
-                // Stream URLs can be refused part way (expired, or the client
-                // turned away): one fresh resolve, from where it got to.
-                if (!retried) {
-                    retried = true
-                    VideoStreams.forget(video.videoId)
-                    load(resumeAt = exo.currentPosition)
+                val failedSource = playing
+                val why = describe(error)
+                TrackLog.w(TAG, "playback failed for ${video.videoId} on ${failedSource?.engine}: $why")
+                // A stream refused part way usually means that source's URLs
+                // won't do for this video: rule it out and try the next one,
+                // from where it got to.
+                val more = failedSource != null && VideoStreams.failed(video.videoId, failedSource)
+                if (more && attempts < MAX_ATTEMPTS) {
+                    attempts++
+                    status = "Stream stopped ($why). Trying another source…"
+                    load(resumeAt = exo.currentPosition.coerceAtLeast(0L), keepAttempts = true)
                 } else {
-                    status = "Couldn't play this video. Skipping…"
+                    status = "Couldn't play this video ($why). Skipping…"
                     scope.launch { delay(SKIP_DELAY_MS); if (current == video) next() }
                 }
             }
         })
+    }
+
+    /** The source now playing, so a failure can be pinned on it. */
+    private var playing: VideoStreams.Source? = null
+    private var attempts = 0
+
+    /** A short reason for the screen: "HTTP 403", "decoder", "network". */
+    private fun describe(error: PlaybackException): String {
+        var cause: Throwable? = error
+        while (cause != null) {
+            if (cause is HttpDataSource.InvalidResponseCodeException) return "HTTP ${cause.responseCode}"
+            cause = cause.cause
+        }
+        return when (error.errorCode) {
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "network"
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES -> "this TV can't decode it"
+            else -> error.errorCodeName
+        }
     }
 
     /** Plays [videos] from [at], replacing whatever was queued. */
@@ -161,16 +189,22 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
         exo.release()
     }
 
-    private fun load(resumeAt: Long = 0L) {
+    private fun load(resumeAt: Long = 0L, keepAttempts: Boolean = false) {
         val video = current ?: return
-        if (resumeAt == 0L) retried = false
+        if (!keepAttempts) {
+            attempts = 0
+            // A fresh start on a video: give every source another chance.
+            VideoStreams.retryAll(video.videoId)
+        }
         loading?.cancel()
         exo.stop()
-        status = "Loading…"
+        playing = null
+        if (!keepAttempts) status = "Loading…"
         quality = null
         loading = scope.launch {
             try {
                 val source = VideoStreams.resolve(video.videoId, VideoSettings.request())
+                playing = source
                 exo.setMediaSource(mediaSourceFor(source, video), resumeAt)
                 exo.prepare()
                 exo.playWhenReady = true
@@ -182,8 +216,9 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                status = "Couldn't play this video. Skipping…"
-                delay(SKIP_DELAY_MS)
+                TrackLog.w(TAG, "no stream for ${video.videoId}: ${e.message}")
+                status = "Couldn't play this video: ${e.message?.take(140) ?: "no stream"}. Skipping…"
+                delay(ERROR_SKIP_DELAY_MS)
                 if (current == video && index + 1 < queue.size) { index++; load() }
             }
         }
@@ -211,7 +246,7 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
             return HlsMediaSource.Factory(http)
                 .createMediaSource(item.setUri(hls).setMimeType(MimeTypes.APPLICATION_M3U8).build())
         }
-        val chunked = ChunkedDataSource.Factory(http)
+        val chunked = ChunkedDataSource.Factory(http, source.chunkBytes, source.lengths)
         val picture = ProgressiveMediaSource.Factory(chunked)
             .createMediaSource(item.setUri(source.videoUrl.orEmpty()).build())
         val sound = source.audioUrl ?: return picture
@@ -222,7 +257,11 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
     }
 
     private companion object {
-        const val SKIP_DELAY_MS = 2500L
+        const val TAG = "OpenTuneVideo"
+        const val MAX_ATTEMPTS = 4
+        const val SKIP_DELAY_MS = 3000L
+        /** Long enough to read the reason off the screen. */
+        const val ERROR_SKIP_DELAY_MS = 6000L
         const val RESTART_THRESHOLD_MS = 5000L
     }
 }
