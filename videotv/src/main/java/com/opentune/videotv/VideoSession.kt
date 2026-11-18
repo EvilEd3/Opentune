@@ -155,9 +155,69 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
     /** Plays [videos] from [at], replacing whatever was queued. */
     fun start(videos: List<Video>, at: Int) {
         if (videos.isEmpty()) return
+        autoAdded.clear()
         queue = videos.distinctBy { it.videoId }
         index = queue.indexOfFirst { it.videoId == videos[at.coerceIn(videos.indices)].videoId }.coerceAtLeast(0)
         load()
+    }
+
+    /** Puts [videos] right after the one playing; starts them if nothing is. */
+    fun playNext(videos: List<Video>) {
+        if (current == null) return start(videos, 0)
+        val ids = videos.map { it.videoId }.toSet()
+        // Moved, if already waiting further down: one copy, now next.
+        val after = queue.drop(index + 1).filterNot { it.videoId in ids }
+        queue = queue.take(index + 1) + videos.filterNot { it.videoId == current?.videoId } + after
+        prefetchNext()
+    }
+
+    /**
+     * Adds [videos] after the last one queued by hand — ahead of the related
+     * videos autoplay found, which wait at the end — and starts them if
+     * nothing is playing.
+     */
+    fun addToQueue(videos: List<Video>) {
+        if (current == null) return start(videos, 0)
+        // Already waiting to play? Then it stays where it is.
+        val waiting = queue.drop(index + 1).map { it.videoId }.toSet()
+        val fresh = videos.filterNot { it.videoId in waiting || it.videoId == current?.videoId }
+        if (fresh.isEmpty()) return
+        val firstFound = queue.indexOfFirst { it.videoId in autoAdded }.takeIf { it > index } ?: queue.size
+        queue = queue.take(firstFound) + fresh + queue.drop(firstFound)
+        if (index + 1 == firstFound) prefetchNext()
+    }
+
+    /** Plays [video] now, the queue after it kept. */
+    fun playNow(video: Video) {
+        if (current == null) return start(listOf(video), 0)
+        if (current?.videoId == video.videoId) return
+        playNext(listOf(video))
+        next()
+    }
+
+    /** Empties what's after the one playing. */
+    fun clearUpcoming() {
+        queue = queue.take(index + 1)
+    }
+
+    /** Takes a video out of the queue; the one playing stays. */
+    fun removeAt(i: Int) {
+        if (i !in queue.indices || i == index) return
+        queue = queue.toMutableList().also { it.removeAt(i) }
+        if (i < index) index--
+    }
+
+    /** Videos autoplay added (related to what was queued), not the viewer. */
+    private val autoAdded = mutableSetOf<String>()
+
+    private fun prefetchNext() {
+        val next = upNext ?: return
+        scope.launch {
+            runCatching {
+                val playable = if (next.isVideo) next else VideoFeed.videoVersion(next) ?: return@runCatching
+                VideoStreams.resolve(playable.videoId, VideoSettings.request())
+            }
+        }
     }
 
     fun jumpTo(i: Int) {
@@ -191,6 +251,7 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
 
     private fun load(resumeAt: Long = 0L, keepAttempts: Boolean = false) {
         val video = current ?: return
+        val at = index
         if (!keepAttempts) {
             attempts = 0
             // A fresh start on a video: give every source another chance.
@@ -203,7 +264,13 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
         quality = null
         loading = scope.launch {
             try {
-                val source = VideoStreams.resolve(video.videoId, VideoSettings.request())
+                // A song from a playlist: play its music video, if it has one,
+                // and otherwise the song itself (its picture is the cover).
+                val playable = if (video.isVideo) video else VideoFeed.videoVersion(video) ?: video
+                if (playable !== video && queue.getOrNull(index)?.videoId == video.videoId) {
+                    queue = queue.toMutableList().also { it[index] = playable }
+                }
+                val source = VideoStreams.resolve(playable.videoId, VideoSettings.request())
                 playing = source
                 exo.setMediaSource(mediaSourceFor(source, video), resumeAt)
                 exo.prepare()
@@ -212,14 +279,14 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
                 quality = source.label
                 // Keep the queue topped up, and the next video ready to go.
                 if (VideoSettings.autoplay && index >= queue.size - 2) extend()
-                upNext?.let { next -> scope.launch { runCatching { VideoStreams.resolve(next.videoId, VideoSettings.request()) } } }
+                prefetchNext()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 TrackLog.w(TAG, "no stream for ${video.videoId}: ${e.message}")
                 status = "Couldn't play this video: ${e.message?.take(140) ?: "no stream"}. Skipping…"
                 delay(ERROR_SKIP_DELAY_MS)
-                if (current == video && index + 1 < queue.size) { index++; load() }
+                if (index == at && index + 1 < queue.size) { index++; load() }
             }
         }
     }
@@ -230,7 +297,10 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
         val seed = queue.lastOrNull() ?: return
         extending = scope.launch {
             val more = runCatching { VideoFeed.upNext(seed, queue.map { it.videoId }.toSet()) }.getOrDefault(emptyList())
-            if (more.isNotEmpty()) queue = (queue + more).distinctBy { it.videoId }
+            if (more.isNotEmpty()) {
+                autoAdded += more.map { it.videoId }
+                queue = (queue + more).distinctBy { it.videoId }
+            }
             then()
         }
     }

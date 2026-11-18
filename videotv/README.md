@@ -6,6 +6,9 @@ A separate Android TV / Google TV app built on OpenTune's `:core`. It does one t
 - **Search**: searches music videos only, with results in a 4-column grid. It also answers the TV's voice search ("Play … on OpenTune Videos").
 - **Player**: Media3's remote-friendly controls. OK pauses, left/right seek, skip goes through the queue, and Back hides the controls and then leaves the player.
 - **Autoplay**: when a video ends, the next one in the row plays. When the row runs out, the queue is topped up with the music videos from YouTube Music's radio for the last video, or more videos by the same artist if the radio has none.
+- **Library**: your YouTube Music playlists and liked songs, after signing in with the OpenTune phone app (scan a code, no typing). Songs play as their music videos: YouTube Music's own pairing of song and video first, then a title-and-artist search. A song with no video plays with its cover art.
+- **Queue**: leaving the player doesn't stop the video. It keeps playing small in the top bar while you browse. Picking anything while a video plays offers **Play now**, **Play next**, **Add to queue** or **Play from here**, and a whole playlist can be added at once. The Queue tab lists what's coming up, so you can jump to a video or remove one.
+- **Phone remote**: pair the OpenTune phone app (Settings → Phone remote) for a trackpad, D-pad, keyboard and media keys.
 - **Settings**: a quality ceiling (480p–1080p, plus 1440p/4K on TVs with a hardware VP9 decoder) and an autoplay switch.
 
 Its application ID is `com.opentune.videotv`, so it installs next to OpenTune and OpenTune TV.

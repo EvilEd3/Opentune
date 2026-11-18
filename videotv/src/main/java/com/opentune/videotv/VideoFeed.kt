@@ -14,12 +14,18 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
-/** One music video: everything a card and the player need. */
+/**
+ * One music video: everything a card and the player need.
+ *
+ * [isVideo] is false for a song from a playlist that is the audio-only
+ * catalogue track: the player looks up its music video before playing it.
+ */
 data class Video(
     val videoId: String,
     val title: String,
     val artist: String,
     val duration: String? = null,
+    val isVideo: Boolean = true,
 ) {
     /**
      * YouTube's own frame for the video, 480×360 with the picture letterboxed
@@ -27,6 +33,9 @@ data class Video(
      */
     val thumbnail: String get() = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 }
+
+/** A playlist in the signed-in account's library. */
+data class PlaylistCard(val browseId: String, val title: String, val subtitle: String, val thumbnail: String?)
 
 data class VideoRow(val title: String, val videos: List<Video>)
 
@@ -70,7 +79,8 @@ object VideoFeed {
     suspend fun search(query: String): List<Video> =
         MusicRepository.search(query, SearchFilter.VIDEOS)
             .mapNotNull { (it as? SearchResult.Track)?.song ?: (it as? SearchResult.TopTrack)?.song }
-            .map { it.toVideo() }
+            // A video search finds videos, however each row is labelled.
+            .map { it.toVideo().copy(isVideo = true) }
             .distinctBy { it.videoId }
 
     suspend fun suggestions(input: String): List<String> =
@@ -94,6 +104,69 @@ object VideoFeed {
         }
     }
 
+    // ---- The account's library -------------------------------------------------
+
+    /** The signed-in account's playlists, Liked music first. */
+    suspend fun playlists(): List<PlaylistCard> = withContext(Dispatchers.IO) {
+        val liked = PlaylistCard(LIKED, "Liked music", "Your likes", null)
+        listOf(liked) + MusicRepository.libraryPlaylists()
+            .mapNotNull { item ->
+                val id = item.browseId ?: return@mapNotNull null
+                if (id == "VLLM" || id == LIKED) return@mapNotNull null
+                PlaylistCard(id, item.title, item.subtitle, item.thumbnailUrl)
+            }
+            .distinctBy { it.browseId }
+    }
+
+    /** A playlist's tracks, music videos and songs alike, in order. */
+    suspend fun playlist(browseId: String): List<Video> = withContext(Dispatchers.IO) {
+        val songs = if (browseId == LIKED) {
+            MusicRepository.accountLikedSongs()
+        } else {
+            MusicRepository.remotePlaylist(browseId.removePrefix("VL")).songs
+        }
+        songs.map { it.toVideo() }.distinctBy { it.videoId }
+    }
+
+    private const val LIKED = "LIKED"
+
+    private val versions = java.util.concurrent.ConcurrentHashMap<String, Video>()
+
+    /**
+     * The music video for [song], an audio-only track: YouTube Music's own
+     * pairing of the two (its Song/Video switch), or failing that the first
+     * music video found by title and artist. Null when it has none.
+     */
+    suspend fun videoVersion(song: Video): Video? = withContext(Dispatchers.IO) {
+        if (song.isVideo) return@withContext song
+        versions[song.videoId]?.let { return@withContext it }
+        val target = normalize(song.title)
+        val paired = quietly {
+            InnertubeParser.parseWatchQueue(Innertube.next(song.videoId), allVersions = true)
+                .take(2)
+                .filter { it.isVideo && it.videoId != song.videoId }
+                .map { it.toVideo() }
+        }.firstOrNull { sameSong(normalize(it.title), target) }
+        val found = paired ?: quietly { search("${song.title} ${song.artist}") }
+            .firstOrNull { sameSong(normalize(it.title), target) }
+        found?.let { video ->
+            // The song's own name and credit read better than an upload's title.
+            Video(video.videoId, song.title, song.artist, video.duration ?: song.duration)
+                .also { versions[song.videoId] = it }
+        }
+    }
+
+    /** "Song Name (Official Video) [4K]" → "song name". */
+    private fun normalize(title: String): String =
+        title.lowercase()
+            .replace(Regex("[(\\[][^)\\]]*[)\\]]"), " ")
+            .replace(Regex("[^\\p{L}\\p{N} ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    private fun sameSong(candidate: String, target: String): Boolean =
+        target.isNotEmpty() && (candidate == target || candidate.startsWith(target) || target in candidate)
+
     // ---- Home sources ----------------------------------------------------------
 
     /** The charts page's video shelves ("Top music videos", "Trending"). */
@@ -116,7 +189,7 @@ object VideoFeed {
                 )
             }
 
-    private fun Song.toVideo() = Video(videoId, title, artist, durationText)
+    private fun Song.toVideo() = Video(videoId, title, artist, durationText, isVideo)
 
     private suspend fun <T> quietly(block: suspend () -> List<T>): List<T> =
         try { block() } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }

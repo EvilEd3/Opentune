@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.opentune.data.account.AccountStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
@@ -182,7 +184,9 @@ private const val DEBOUNCE_MS = 450L
 // ---- Settings -----------------------------------------------------------------
 
 @Composable
-fun SettingsScreen(remote: TvRemote?, onPair: () -> Unit) {
+fun SettingsScreen(remote: TvRemote?, onPair: () -> Unit, onSignIn: () -> Unit) {
+    val signedIn by AccountStore.signedIn.collectAsState()
+    val account by AccountStore.account.collectAsState()
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = TvSafe.Horizontal, vertical = 12.dp),
@@ -216,6 +220,22 @@ fun SettingsScreen(remote: TvRemote?, onPair: () -> Unit) {
                     TvPill("On", selected = VideoSettings.autoplay, onClick = { VideoSettings.chooseAutoplay(true) })
                     TvPill("Off", selected = !VideoSettings.autoplay, onClick = { VideoSettings.chooseAutoplay(false) })
                 }
+            }
+        }
+        item {
+            Column {
+                Text("YouTube Music account", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    if (signedIn) {
+                        "Signed in${account?.let { " as ${it.name}" }.orEmpty()}. Your playlists are in Library."
+                    } else {
+                        "Sign in with the OpenTune app on your phone to play your playlists and liked songs."
+                    },
+                    style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim,
+                )
+                Spacer(Modifier.height(12.dp))
+                if (signedIn) TvButton("Sign out", { AccountStore.signOut() })
+                else TvButton("Sign in with your phone", onSignIn, primary = true)
             }
         }
         if (remote != null) {
