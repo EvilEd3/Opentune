@@ -199,7 +199,7 @@ fun SettingsScreen() {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     VideoSettings.choices().forEach { q ->
-                        TvPill(q.label, selected = VideoSettings.quality == q, onClick = { VideoSettings.setQuality(q) })
+                        TvPill(q.label, selected = VideoSettings.quality == q, onClick = { VideoSettings.chooseQuality(q) })
                     }
                 }
             }
@@ -213,8 +213,8 @@ fun SettingsScreen() {
                 )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TvPill("On", selected = VideoSettings.autoplay, onClick = { VideoSettings.setAutoplay(true) })
-                    TvPill("Off", selected = !VideoSettings.autoplay, onClick = { VideoSettings.setAutoplay(false) })
+                    TvPill("On", selected = VideoSettings.autoplay, onClick = { VideoSettings.chooseAutoplay(true) })
+                    TvPill("Off", selected = !VideoSettings.autoplay, onClick = { VideoSettings.chooseAutoplay(false) })
                 }
             }
         }

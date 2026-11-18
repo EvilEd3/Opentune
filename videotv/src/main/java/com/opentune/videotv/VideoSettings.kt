@@ -45,12 +45,12 @@ object VideoSettings {
     fun choices(): List<VideoQuality> =
         VideoQuality.entries.filter { it.maxHeight <= 1080 || hasHardwareVp9 }
 
-    fun setQuality(value: VideoQuality) {
+    fun chooseQuality(value: VideoQuality) {
         quality = value
         prefs.edit().putString("quality", value.name).apply()
     }
 
-    fun setAutoplay(value: Boolean) {
+    fun chooseAutoplay(value: Boolean) {
         autoplay = value
         prefs.edit().putBoolean("autoplay", value).apply()
     }
