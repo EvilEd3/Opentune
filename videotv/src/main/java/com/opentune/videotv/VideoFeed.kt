@@ -1,9 +1,11 @@
 package com.opentune.videotv
 
 import com.opentune.data.MusicRepository
+import com.opentune.data.account.AccountStore
 import com.opentune.data.innertube.Innertube
 import com.opentune.data.innertube.InnertubeParser
 import com.opentune.data.model.HomeShelf
+import com.opentune.data.model.LikeStatus
 import com.opentune.data.model.SearchFilter
 import com.opentune.data.model.SearchResult
 import com.opentune.data.model.Song
@@ -26,18 +28,25 @@ data class Video(
     val artist: String,
     val duration: String? = null,
     val isVideo: Boolean = true,
+    /** The cover YouTube Music gave a song, where it isn't a video's own frame. */
+    val art: String? = null,
 ) {
     /**
      * YouTube's own frame for the video, 480×360 with the picture letterboxed
      * in it; cropped to 16:9 on the card, the bars fall away.
      */
-    val thumbnail: String get() = "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+    val thumbnail: String get() = art ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
 }
 
 /** A playlist in the signed-in account's library. */
 data class PlaylistCard(val browseId: String, val title: String, val subtitle: String, val thumbnail: String?)
 
-data class VideoRow(val title: String, val videos: List<Video>)
+/** A row on Home: videos to play, or playlists (mixes) to open. */
+data class VideoRow(
+    val title: String,
+    val videos: List<Video>,
+    val playlists: List<PlaylistCard> = emptyList(),
+)
 
 /**
  * Where the videos come from. Everything here asks YouTube Music for its
@@ -64,13 +73,14 @@ object VideoFeed {
 
     suspend fun home(): List<VideoRow> = withContext(Dispatchers.IO) {
         coroutineScope {
+            val personal = async { if (AccountStore.signedIn.value) quietly { forYouRows() } else emptyList() }
             val charts = async { quietly { chartRows() } }
             val fresh = async { quietly { newReleaseRows() } }
             val genres = GENRES.map { (title, query) ->
                 async { quietly { listOf(VideoRow(title, search(query))) } }
             }
-            (charts.await() + fresh.await() + genres.awaitAll().flatten())
-                .filter { it.videos.size >= 3 }
+            (personal.await() + charts.await() + fresh.await() + genres.awaitAll().flatten())
+                .filter { it.videos.size >= 3 || it.playlists.size >= 2 }
                 .distinctBy { it.title }
         }
     }
@@ -167,7 +177,52 @@ object VideoFeed {
     private fun sameSong(candidate: String, target: String): Boolean =
         target.isNotEmpty() && (candidate == target || candidate.startsWith(target) || target in candidate)
 
+    // ---- Likes and saving --------------------------------------------------------
+
+    /** Thumbs up (or taking it back) in the signed-in account: it lands in Liked music. */
+    suspend fun like(videoId: String, liked: Boolean) = withContext(Dispatchers.IO) {
+        Innertube.rate(videoId, if (liked) LikeStatus.LIKE else LikeStatus.INDIFFERENT)
+    }
+
+    /** Adds [videoId] to one of the account's playlists. */
+    suspend fun saveTo(playlist: PlaylistCard, videoId: String) = withContext(Dispatchers.IO) {
+        Innertube.addToPlaylist(playlist.browseId.removePrefix("VL"), listOf(videoId))
+    }
+
     // ---- Home sources ----------------------------------------------------------
+
+    /**
+     * The signed-in account's own Home: YouTube Music's picks for it ("Quick
+     * picks", "Listen again", its mixes). Songs play as their music videos;
+     * mixes and playlists open like any playlist. Albums are left out, as
+     * this app has no album page.
+     */
+    private suspend fun forYouRows(): List<VideoRow> =
+        InnertubeParser.parseHome(Innertube.browse("FEmusic_home"))
+            .filter { it.items.isNotEmpty() }
+            .take(FOR_YOU_SHELVES)
+            .map { shelf ->
+                val looksLikeVideos = shelf.title.contains("video", ignoreCase = true)
+                VideoRow(
+                    title = shelf.title,
+                    videos = shelf.items.mapNotNull { item ->
+                        item.videoId?.let {
+                            Video(
+                                it, item.title, item.subtitle.substringBefore(" • ").trim(),
+                                isVideo = looksLikeVideos,
+                                art = if (looksLikeVideos) null else item.thumbnailUrl,
+                            )
+                        }
+                    },
+                    playlists = shelf.items.mapNotNull { item ->
+                        val id = item.browseId ?: return@mapNotNull null
+                        if (item.videoId != null || !(id.startsWith("VL") || id.startsWith("RD"))) return@mapNotNull null
+                        PlaylistCard(if (id.startsWith("VL")) id else "VL$id", item.title, item.subtitle, item.thumbnailUrl)
+                    },
+                )
+            }
+
+    private const val FOR_YOU_SHELVES = 6
 
     /** The charts page's video shelves ("Top music videos", "Trending"). */
     private suspend fun chartRows(): List<VideoRow> =

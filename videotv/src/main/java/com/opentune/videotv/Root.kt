@@ -3,12 +3,14 @@ package com.opentune.videotv
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -36,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.opentune.data.account.AccountStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,10 +51,6 @@ private enum class Tab(val label: String) {
     Settings("Settings"),
 }
 
-/** A video picked from a list, waiting on the viewer's choice of what to do with it. */
-private class Picked(val list: List<Video>, val index: Int) {
-    val video: Video get() = list[index]
-}
 
 /**
  * The whole app: a bar of tabs over Home, Search, Library, Queue and
@@ -73,7 +72,9 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
     var playing by remember { mutableStateOf(false) }
     var pairing by remember { mutableStateOf(false) }
     var signingIn by remember { mutableStateOf(false) }
-    var picked by remember { mutableStateOf<Picked?>(null) }
+    var picked by remember { mutableStateOf<Video?>(null) }
+    /** A video to save to a playlist: the playlist picker is open for it. */
+    var saving by remember { mutableStateOf<Video?>(null) }
     var queueItem by remember { mutableStateOf<Int?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeId by remember { mutableIntStateOf(0) }
@@ -104,15 +105,45 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
     val search = remember { SearchState() }
     val library = remember { LibraryState() }
 
-    /** Picking a video: straight to it when nothing plays, else ask what to do. */
-    val pick: (List<Video>, Int) -> Unit = { list, i ->
+    /**
+     * Picking a video: just that one (autoplay finds what follows it), straight
+     * away when nothing plays, else a menu of what to do with it.
+     */
+    val pick: (Video) -> Unit = { video ->
         if (session.current == null) {
-            session.start(list, i)
+            session.start(listOf(video), 0)
             playing = true
         } else {
-            picked = Picked(list, i)
+            picked = video
         }
     }
+    /** Holding OK on a video: onto the end of the queue, no questions. */
+    val quickAdd: (Video) -> Unit = { video ->
+        if (session.current == null) {
+            session.start(listOf(video), 0)
+            playing = true
+        } else {
+            session.addToQueue(listOf(video))
+            tell("Added to queue: ${video.title}")
+        }
+    }
+    /** A playlist's Play or Shuffle: the whole list, in place of the queue. */
+    val playAll: (List<Video>) -> Unit = { list ->
+        if (list.isNotEmpty()) {
+            session.start(list, 0)
+            playing = true
+        }
+    }
+    val openPlaylist: (PlaylistCard) -> Unit = { card ->
+        library.open = card
+        tab = Tab.Library
+    }
+    val signedIn by AccountStore.signedIn.collectAsState()
+    /** Like and Save, for menus, when there is an account to keep them in. */
+    fun accountActions(video: Video): List<MenuAction> = if (!signedIn) emptyList() else listOf(
+        MenuAction(if (video.videoId in session.liked) "Unlike" else "Like") { session.toggleLike(video) { tell(it) } },
+        MenuAction("Add to a playlist…") { saving = video },
+    )
     /** A whole list (a playlist): at the end of the queue, or right after the one playing. */
     val queueAll: (List<Video>, Boolean) -> Unit = { list, next ->
         val wasEmpty = session.current == null
@@ -159,33 +190,56 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
     }
 
     Box(Modifier.fillMaxSize()) {
-        when {
-            // Back from the player keeps the video going, small, in the top bar.
-            playing -> PlayerScreen(session, onClose = { playing = false })
-            pairing && remote != null -> PairPhoneScreen(remote, onClose = { pairing = false })
-            signingIn -> SignInScreen(onClose = { signingIn = false; library.reload++ })
-            else -> Browse(
-                tab = tab,
-                onTab = { tab = it },
-                session = session,
-                onNowPlaying = { playing = true },
-                rows = rows,
-                homeList = homeList,
-                onRetry = { reload++ },
-                search = search,
-                library = library,
-                onSignIn = { signingIn = true },
-                remote = remote,
-                onPair = { pairing = true },
-                pick = pick,
-                queueAll = queueAll,
-                onQueueItem = { queueItem = it },
+        if (playing) {
+            PlayerScreen(
+                session,
+                onClose = { playing = false },
+                signedIn = signedIn,
+                onSave = { saving = it },
+                tell = { tell(it) },
             )
+        } else {
+            // Browsing: the pages on the left, and the video, still playing, down the right.
+            Row(Modifier.fillMaxSize().background(TvColors.Background)) {
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    when {
+                        pairing && remote != null -> PairPhoneScreen(remote, onClose = { pairing = false })
+                        signingIn -> SignInScreen(onClose = { signingIn = false; library.reload++; reload++ })
+                        else -> Browse(
+                            tab = tab,
+                            onTab = { tab = it },
+                            session = session,
+                            onNowPlaying = { playing = true },
+                            rows = rows,
+                            homeList = homeList,
+                            onRetry = { reload++ },
+                            search = search,
+                            library = library,
+                            onSignIn = { signingIn = true },
+                            remote = remote,
+                            onPair = { pairing = true },
+                            pick = pick,
+                            quickAdd = quickAdd,
+                            playAll = playAll,
+                            queueAll = queueAll,
+                            openPlaylist = openPlaylist,
+                            onQueueItem = { queueItem = it },
+                        )
+                    }
+                }
+                if (session.current != null) {
+                    NowPlayingPanel(
+                        session,
+                        onOpen = { playing = true },
+                        modifier = Modifier
+                            .width(NOW_PLAYING_WIDTH)
+                            .padding(top = TvSafe.Vertical, end = TvSafe.Horizontal, bottom = TvSafe.Vertical),
+                    )
+                }
+            }
         }
 
-        picked?.let { p ->
-            val video = p.video
-            val rest = p.list.drop(p.index)
+        picked?.let { video ->
             ActionMenu(
                 title = video.title,
                 subtitle = video.artist,
@@ -196,12 +250,17 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
                     },
                     MenuAction("Play next") { session.playNext(listOf(video)); tell("Playing next: ${video.title}") },
                     MenuAction("Add to queue") { session.addToQueue(listOf(video)); tell("Added to queue: ${video.title}") },
-                    MenuAction(if (rest.size > 1) "Play from here (replaces the queue)" else "Play only this (replaces the queue)") {
-                        session.start(p.list, p.index)
-                        playing = true
-                    },
-                ),
+                ) + accountActions(video),
                 onDismiss = { picked = null },
+            )
+        }
+
+        saving?.let { video ->
+            PlaylistPicker(
+                video = video,
+                library = library,
+                onPick = { card -> session.save(video, card) { tell(it) } },
+                onDismiss = { saving = null },
             )
         }
 
@@ -216,10 +275,13 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
                     actions = buildList {
                         if (i != session.index) {
                             add(MenuAction("Play now", primary = true) { session.jumpTo(i); playing = true })
+                            if (i > session.index + 1) add(MenuAction("Move up") { session.move(i, -1) })
+                            if (i > session.index && i < session.queue.lastIndex) add(MenuAction("Move down") { session.move(i, 1) })
                             add(MenuAction("Remove from queue") { session.removeAt(i) })
                         } else {
                             add(MenuAction("Watch full screen", primary = true) { playing = true })
                         }
+                        addAll(accountActions(video))
                     },
                     onDismiss = { queueItem = null },
                 )
@@ -247,19 +309,27 @@ private fun Browse(
     onSignIn: () -> Unit,
     remote: TvRemote?,
     onPair: () -> Unit,
-    pick: (List<Video>, Int) -> Unit,
+    pick: (Video) -> Unit,
+    quickAdd: (Video) -> Unit,
+    playAll: (List<Video>) -> Unit,
     queueAll: (List<Video>, Boolean) -> Unit,
+    openPlaylist: (PlaylistCard) -> Unit,
     onQueueItem: (Int) -> Unit,
 ) {
+    // Back on a main page, with a video playing, goes back to it full screen
+    // (pages with somewhere of their own to go back to handle Back first).
+    BackHandler(enabled = session.current != null) { onNowPlaying() }
     val homeTab = remember { FocusRequester() }
-    Column(Modifier.fillMaxSize().background(TvColors.Background)) {
+    Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = TvSafe.Horizontal, vertical = TvSafe.Vertical),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("OpenTune Videos", style = MaterialTheme.typography.titleLarge, color = TvColors.Accent)
-            Spacer(Modifier.width(24.dp))
+            if (session.current == null) {
+                Text("OpenTune Videos", style = MaterialTheme.typography.titleLarge, color = TvColors.Accent)
+                Spacer(Modifier.width(24.dp))
+            }
             Tab.entries.forEach { t ->
                 if (t == Tab.Queue && session.queue.isEmpty()) return@forEach
                 TvPill(
@@ -269,14 +339,12 @@ private fun Browse(
                     focusRequester = if (t == Tab.Home) homeTab else null,
                 )
             }
-            Spacer(Modifier.weight(1f))
-            MiniPlayer(session, onOpen = onNowPlaying)
         }
         Spacer(Modifier.height(4.dp))
         when (tab) {
-            Tab.Home -> HomeScreen(rows, homeList, onRetry = onRetry, play = pick)
-            Tab.Search -> SearchScreen(search, pick)
-            Tab.Library -> LibraryScreen(library, onSignIn, pick, queueAll)
+            Tab.Home -> HomeScreen(rows, homeList, onRetry = onRetry, pick = pick, quickAdd = quickAdd, openPlaylist = openPlaylist)
+            Tab.Search -> SearchScreen(search, pick, quickAdd)
+            Tab.Library -> LibraryScreen(library, onSignIn, pick, quickAdd, playAll, queueAll)
             Tab.Queue -> QueueScreen(session, onOpen = onQueueItem, onClearUpcoming = { session.clearUpcoming() })
             Tab.Settings -> SettingsScreen(remote, onPair, onSignIn)
         }
@@ -293,6 +361,9 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 /** How often a connected phone is told what's playing. */
 private const val NOW_EVERY_MS = 700L
+
+/** The now-playing column down the right while browsing. */
+private val NOW_PLAYING_WIDTH = 340.dp
 
 /** How long "Added to queue" stays up. */
 private const val NOTICE_MS = 2_500L

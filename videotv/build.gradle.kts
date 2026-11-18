@@ -12,6 +12,8 @@ plugins {
 val appBuild = rootProject.file("app/build.gradle.kts").readText()
 val appVersionName = Regex("""versionName = "([^"]+)"""").find(appBuild)!!.groupValues[1]
 val appVersionCode = Regex("""versionCode = (\d+)""").find(appBuild)!!.groupValues[1].toInt()
+// Each CI build counts up (-PvideotvBuild=<run number>), so every release installs over the last.
+val videotvBuild = providers.gradleProperty("videotvBuild").map { it.toInt() }.getOrElse(0)
 
 android {
     namespace = "com.opentune.videotv"
@@ -22,8 +24,8 @@ android {
         // Android 8.0, the same floor as :core.
         minSdk = 26
         targetSdk = 36
-        versionCode = appVersionCode
-        versionName = appVersionName
+        versionCode = appVersionCode * 10_000 + videotvBuild.coerceIn(0, 9_999)
+        versionName = if (videotvBuild > 0) "$appVersionName-tv.$videotvBuild" else appVersionName
         // Boxes and sticks are ARM, most still 32-bit; x86_64 is for the emulator.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }

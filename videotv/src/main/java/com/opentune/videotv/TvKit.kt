@@ -5,7 +5,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +62,7 @@ private val FocusRing = Color.White
  * Anything the remote can land on. The focused one grows a little, takes a ring
  * and a lighter fill, and rises above its neighbours; OK on it calls [onClick].
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TvSurface(
     onClick: () -> Unit,
@@ -71,6 +74,8 @@ fun TvSurface(
     ring: Boolean = true,
     role: Role = Role.Button,
     onFocused: () -> Unit = {},
+    /** Holding OK down, on the remote or the phone: a second action, without opening anything. */
+    onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -91,7 +96,13 @@ fun TvSurface(
             .clip(shape)
             .background(fill, shape)
             .then(if (lit && ring) Modifier.border(3.dp, FocusRing, shape) else Modifier)
-            .clickable(interactionSource = source, indication = null, role = role, onClick = onClick),
+            .combinedClickable(
+                interactionSource = source,
+                indication = null,
+                role = role,
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
     ) { content(lit) }
 }
 

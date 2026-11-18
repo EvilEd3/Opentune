@@ -29,6 +29,10 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /** Keys go past [KeyHook] first: the player takes Down for its Up next panel. */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        KeyHook.handler?.invoke(event) == true || super.dispatchKeyEvent(event)
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         spokenQuery(intent)?.let { voice.value = it }
@@ -42,4 +46,9 @@ class MainActivity : ComponentActivity() {
     private fun spokenQuery(intent: Intent?): String? =
         intent?.takeIf { it.action == MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH }
             ?.getStringExtra(SearchManager.QUERY)?.trim()?.takeIf { it.isNotEmpty() }
+}
+
+/** A screen's first look at a key, before the focused view gets it (see [MainActivity.dispatchKeyEvent]). */
+object KeyHook {
+    var handler: ((android.view.KeyEvent) -> Boolean)? = null
 }

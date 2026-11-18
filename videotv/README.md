@@ -7,7 +7,8 @@ A separate Android TV / Google TV app built on OpenTune's `:core`. It does one t
 - **Player**: Media3's remote-friendly controls. OK pauses, left/right seek, skip goes through the queue, and Back hides the controls and then leaves the player.
 - **Autoplay**: when a video ends, the next one in the row plays. When the row runs out, the queue is topped up with the music videos from YouTube Music's radio for the last video, or more videos by the same artist if the radio has none.
 - **Library**: your YouTube Music playlists and liked songs, after signing in with the OpenTune phone app (scan a code, no typing). Songs play as their music videos: YouTube Music's own pairing of song and video first, then a title-and-artist search. A song with no video plays with its cover art.
-- **Queue**: leaving the player doesn't stop the video. It keeps playing small in the top bar while you browse. Picking anything while a video plays offers **Play now**, **Play next**, **Add to queue** or **Play from here**, and a whole playlist can be added at once. The Queue tab lists what's coming up, so you can jump to a video or remove one.
+- **Queue**: leaving the player doesn't stop the video. It keeps playing in a column down the right of every page; OK on it, or Back on a main page, returns to full screen. Picking a video plays just that one. While one plays, picking offers **Play now**, **Play next** or **Add to queue**, and holding OK adds straight to the queue. In the player, Down (with the controls hidden) opens **Up next**, where you can play, move or remove queued videos, like the current one, or save it to a playlist. The Queue tab does the same from the pages.
+- **For you**: signed in, Home starts with YouTube Music's picks for the account and its mixes.
 - **Phone remote**: pair the OpenTune phone app (Settings → Phone remote) for a trackpad, D-pad, keyboard and media keys.
 - **Settings**: a quality ceiling (480p–1080p, plus 1440p/4K on TVs with a hardware VP9 decoder) and an autoplay switch.
 
@@ -39,7 +40,13 @@ adb connect <tv-ip>:5555
 adb install -r videotv/build/outputs/apk/debug/videotv-debug.apk
 ```
 
-On GitHub, `.github/workflows/videotv.yml` builds just this app on every push that touches it. Download the APK from the run's **OpenTune-Videos-TV** artifact. The main CI builds it too, along with everything else.
+On GitHub, `.github/workflows/videotv.yml` builds just this app on every push that touches it and publishes it at a fixed address:
+
+```
+https://github.com/<owner>/<repo>/releases/download/videotv-latest/OpenTune-Videos.apk
+```
+
+With the repository secrets `VIDEOTV_KEYSTORE` (the release keystore, base64) and `VIDEOTV_KEYSTORE_PASSWORD` set, that APK is a signed, optimised release. Each build's version code counts up, so it installs straight over the previous one. Without the secrets it is a debug build.
 
 ## Licence
 

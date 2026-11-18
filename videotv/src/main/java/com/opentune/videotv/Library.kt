@@ -66,7 +66,9 @@ class LibraryState {
 fun LibraryScreen(
     state: LibraryState,
     onSignIn: () -> Unit,
-    pick: (List<Video>, Int) -> Unit,
+    pick: (Video) -> Unit,
+    quickAdd: (Video) -> Unit,
+    playAll: (List<Video>) -> Unit,
     queueAll: (List<Video>, Boolean) -> Unit,
 ) {
     val signedIn by AccountStore.signedIn.collectAsState()
@@ -87,7 +89,7 @@ fun LibraryScreen(
 
     val open = state.open
     if (open != null) {
-        PlaylistPage(state, open, pick, queueAll)
+        PlaylistPage(state, open, pick, quickAdd, playAll, queueAll)
         return
     }
 
@@ -130,7 +132,7 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun PlaylistTile(card: PlaylistCard, onClick: () -> Unit) {
+fun PlaylistTile(card: PlaylistCard, onClick: () -> Unit) {
     val shape = RoundedCornerShape(12.dp)
     Column(Modifier.fillMaxWidth()) {
         TvSurface(onClick = onClick, shape = shape, scale = 1.06f, modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
@@ -154,7 +156,9 @@ private fun PlaylistTile(card: PlaylistCard, onClick: () -> Unit) {
 private fun PlaylistPage(
     state: LibraryState,
     card: PlaylistCard,
-    pick: (List<Video>, Int) -> Unit,
+    pick: (Video) -> Unit,
+    quickAdd: (Video) -> Unit,
+    playAll: (List<Video>) -> Unit,
     queueAll: (List<Video>, Boolean) -> Unit,
 ) {
     BackHandler { state.open = null }
@@ -178,14 +182,14 @@ private fun PlaylistPage(
                 Text(card.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val count = (state.tracks as? Load.Done)?.value?.size
                 Text(
-                    if (count != null) "$count tracks · songs play as their music videos" else card.subtitle,
+                    if (count != null) "$count tracks · songs play as their music videos · hold OK to add one to the queue" else card.subtitle,
                     style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim,
                 )
             }
             val tracks = (state.tracks as? Load.Done)?.value.orEmpty()
             if (tracks.isNotEmpty()) {
-                TvButton("Play", { pick(tracks, 0) }, icon = Icons.Rounded.PlayArrow, primary = true, focusRequester = first)
-                TvButton("Shuffle", { pick(tracks.shuffled(), 0) }, icon = Icons.Rounded.Shuffle)
+                TvButton("Play", { playAll(tracks) }, icon = Icons.Rounded.PlayArrow, primary = true, focusRequester = first)
+                TvButton("Shuffle", { playAll(tracks.shuffled()) }, icon = Icons.Rounded.Shuffle)
                 TvButton("Add all to queue", { queueAll(tracks, false) }, icon = Icons.AutoMirrored.Rounded.QueueMusic)
             }
             TvButton("Back", { state.open = null })
@@ -201,8 +205,8 @@ private fun PlaylistPage(
                     contentPadding = PaddingValues(horizontal = TvSafe.Horizontal - 8.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    itemsIndexed(t.value, key = { _, v -> v.videoId }) { i, video ->
-                        TrackRow(video, onClick = { pick(t.value, i) })
+                    itemsIndexed(t.value, key = { _, v -> v.videoId }) { _, video ->
+                        TrackRow(video, onClick = { pick(video) }, onLongClick = { quickAdd(video) })
                     }
                 }
             }
@@ -212,9 +216,15 @@ private fun PlaylistPage(
 
 /** A track in a list: its picture, title and artist, and how long it is. */
 @Composable
-fun TrackRow(video: Video, onClick: () -> Unit, highlight: Boolean = false, note: String? = null) {
+fun TrackRow(
+    video: Video,
+    onClick: () -> Unit,
+    highlight: Boolean = false,
+    note: String? = null,
+    onLongClick: (() -> Unit)? = null,
+) {
     val shape = RoundedCornerShape(12.dp)
-    TvSurface(onClick = onClick, shape = shape, scale = 1.015f, modifier = Modifier.fillMaxWidth()) { _ ->
+    TvSurface(onClick = onClick, onLongClick = onLongClick, shape = shape, scale = 1.015f, modifier = Modifier.fillMaxWidth()) { _ ->
         Row(
             Modifier
                 .fillMaxWidth()

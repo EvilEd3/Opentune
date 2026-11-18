@@ -200,6 +200,43 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
         queue = queue.take(index + 1)
     }
 
+    /** Moves the video at [i] one place up ([by] -1) or down (+1) among those still to play. */
+    fun move(i: Int, by: Int) {
+        val to = i + by
+        if (i <= index || to <= index || i !in queue.indices || to !in queue.indices) return
+        queue = queue.toMutableList().also { val v = it.removeAt(i); it.add(to, v) }
+        if (to == index + 1 || i == index + 1) prefetchNext()
+    }
+
+    /** Videos liked from this TV, this session: what the Like buttons show. */
+    var liked by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    /** Likes or unlikes [video] in the account; the button flips at once, back if it fails. */
+    fun toggleLike(video: Video, onDone: (String) -> Unit = {}) {
+        val now = video.videoId !in liked
+        liked = if (now) liked + video.videoId else liked - video.videoId
+        scope.launch {
+            try {
+                VideoFeed.like(video.videoId, now)
+                onDone(if (now) "Liked: ${video.title}" else "Removed from Liked music")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                liked = if (now) liked - video.videoId else liked + video.videoId
+                onDone("Couldn't update Liked music")
+            }
+        }
+    }
+
+    /** Saves [video] to [playlist] in the account. */
+    fun save(video: Video, playlist: PlaylistCard, onDone: (String) -> Unit = {}) {
+        scope.launch {
+            val ok = try { VideoFeed.saveTo(playlist, video.videoId); true } catch (e: CancellationException) { throw e } catch (_: Exception) { false }
+            onDone(if (ok) "Saved to ${playlist.title}" else "Couldn't save to ${playlist.title}")
+        }
+    }
+
     /** Takes a video out of the queue; the one playing stays. */
     fun removeAt(i: Int) {
         if (i !in queue.indices || i == index) return

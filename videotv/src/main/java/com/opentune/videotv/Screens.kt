@@ -2,6 +2,7 @@ package com.opentune.videotv
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -60,10 +61,11 @@ fun VideoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     width: Dp = 320.dp,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(12.dp)
     Column(modifier.width(width)) {
-        TvSurface(onClick = onClick, shape = shape, scale = 1.06f, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+        TvSurface(onClick = onClick, onLongClick = onLongClick, shape = shape, scale = 1.06f, modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             Cover(video.thumbnail, Modifier.matchParentSize(), shape)
             if (video.duration != null) {
                 Text(
@@ -92,7 +94,9 @@ fun HomeScreen(
     rows: Load<List<VideoRow>>,
     listState: LazyListState,
     onRetry: () -> Unit,
-    play: (List<Video>, Int) -> Unit,
+    pick: (Video) -> Unit,
+    quickAdd: (Video) -> Unit,
+    openPlaylist: (PlaylistCard) -> Unit,
 ) {
     when (rows) {
         Load.Loading -> TvNote("Loading music videos…")
@@ -108,8 +112,11 @@ fun HomeScreen(
         ) {
             itemsIndexed(rows.value, key = { _, row -> row.title }) { _, row ->
                 TvShelf(row.title) {
-                    itemsIndexed(row.videos, key = { _, v -> v.videoId }) { i, video ->
-                        VideoCard(video, onClick = { play(row.videos, i) })
+                    itemsIndexed(row.videos, key = { _, v -> v.videoId }) { _, video ->
+                        VideoCard(video, onClick = { pick(video) }, onLongClick = { quickAdd(video) })
+                    }
+                    itemsIndexed(row.playlists, key = { _, p -> p.browseId }) { _, card ->
+                        Box(Modifier.width(200.dp)) { PlaylistTile(card, onClick = { openPlaylist(card) }) }
                     }
                 }
             }
@@ -128,7 +135,7 @@ class SearchState {
 
 /** Search as you type, music videos only. The TV's keyboard opens on the field. */
 @Composable
-fun SearchScreen(state: SearchState, play: (List<Video>, Int) -> Unit) {
+fun SearchScreen(state: SearchState, pick: (Video) -> Unit, quickAdd: (Video) -> Unit) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -170,8 +177,11 @@ fun SearchScreen(state: SearchState, play: (List<Video>, Int) -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalArrangement = Arrangement.spacedBy(28.dp),
                 ) {
-                    itemsIndexed(r.value, key = { _, v -> v.videoId }) { i, video ->
-                        VideoCard(video, onClick = { play(r.value, i) }, width = Dp.Unspecified, modifier = Modifier.fillMaxWidth())
+                    itemsIndexed(r.value, key = { _, v -> v.videoId }) { _, video ->
+                        VideoCard(
+                            video, onClick = { pick(video) }, onLongClick = { quickAdd(video) },
+                            width = Dp.Unspecified, modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
