@@ -1,0 +1,228 @@
+package com.opentune.videotv
+
+import android.content.Context
+import androidx.annotation.OptIn
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import com.opentune.data.Http
+import com.opentune.data.innertube.VideoStreams
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * The player and its queue of videos.
+ *
+ * ExoPlayer holds one video at a time; the queue is kept here, because each
+ * video's stream has to be resolved before it can be handed over and URLs
+ * expire, so resolving the whole queue up front would be wasted. The next
+ * video is resolved while the current one plays, so moving on is quick.
+ *
+ * Nothing but the videos themselves is ever played: no ads are fetched,
+ * inserted or shown — the streams come straight from YouTube's player API.
+ */
+@OptIn(UnstableApi::class)
+class VideoSession(context: Context, private val scope: CoroutineScope) {
+
+    val exo: ExoPlayer = ExoPlayer.Builder(context)
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus = */ true,
+        )
+        .setHandleAudioBecomingNoisy(true)
+        .build()
+
+    /**
+     * What the on-screen controls drive: ExoPlayer, with next and previous
+     * reaching into this queue rather than ExoPlayer's one-item playlist — so
+     * the remote's skip buttons and the controls' own work as expected.
+     */
+    val player: Player = object : ForwardingPlayer(exo) {
+        override fun getAvailableCommands(): Player.Commands =
+            super.getAvailableCommands().buildUpon()
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .build()
+
+        override fun isCommandAvailable(command: Int): Boolean = when (command) {
+            Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+            else -> super.isCommandAvailable(command)
+        }
+
+        override fun hasNextMediaItem(): Boolean = true
+        override fun hasPreviousMediaItem(): Boolean = true
+        override fun seekToNext() = next()
+        override fun seekToNextMediaItem() = next()
+        override fun seekToPrevious() = previous()
+        override fun seekToPreviousMediaItem() = previous()
+    }
+
+    var queue by mutableStateOf<List<Video>>(emptyList())
+        private set
+    var index by mutableIntStateOf(0)
+        private set
+
+    /** "Loading…", or why a video can't play; null while one is playing. */
+    var status by mutableStateOf<String?>(null)
+        private set
+
+    /** The stream's quality, "1080p · H.264". */
+    var quality by mutableStateOf<String?>(null)
+        private set
+
+    val current: Video? get() = queue.getOrNull(index)
+    val upNext: Video? get() = queue.getOrNull(index + 1)
+
+    private var loading: Job? = null
+    private var extending: Job? = null
+    private var retried = false
+
+    init {
+        exo.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED && VideoSettings.autoplay) next()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                val video = current ?: return
+                // Stream URLs can be refused part way (expired, or the client
+                // turned away): one fresh resolve, from where it got to.
+                if (!retried) {
+                    retried = true
+                    VideoStreams.forget(video.videoId)
+                    load(resumeAt = exo.currentPosition)
+                } else {
+                    status = "Couldn't play this video. Skipping…"
+                    scope.launch { delay(SKIP_DELAY_MS); if (current == video) next() }
+                }
+            }
+        })
+    }
+
+    /** Plays [videos] from [at], replacing whatever was queued. */
+    fun start(videos: List<Video>, at: Int) {
+        if (videos.isEmpty()) return
+        queue = videos.distinctBy { it.videoId }
+        index = queue.indexOfFirst { it.videoId == videos[at.coerceIn(videos.indices)].videoId }.coerceAtLeast(0)
+        load()
+    }
+
+    fun jumpTo(i: Int) {
+        if (i !in queue.indices || i == index) return
+        index = i
+        load()
+    }
+
+    fun next() {
+        if (index + 1 < queue.size) {
+            index++
+            load()
+        } else {
+            // At the end of the queue: find more first, then move on.
+            extend { if (index + 1 < queue.size) { index++; load() } }
+        }
+    }
+
+    fun previous() {
+        if (exo.currentPosition > RESTART_THRESHOLD_MS || index == 0) exo.seekTo(0)
+        else { index--; load() }
+    }
+
+    fun pause() = exo.pause()
+
+    fun release() {
+        loading?.cancel()
+        extending?.cancel()
+        exo.release()
+    }
+
+    private fun load(resumeAt: Long = 0L) {
+        val video = current ?: return
+        if (resumeAt == 0L) retried = false
+        loading?.cancel()
+        exo.stop()
+        status = "Loading…"
+        quality = null
+        loading = scope.launch {
+            try {
+                val source = VideoStreams.resolve(video.videoId, VideoSettings.request())
+                exo.setMediaSource(mediaSourceFor(source, video), resumeAt)
+                exo.prepare()
+                exo.playWhenReady = true
+                status = null
+                quality = source.label
+                // Keep the queue topped up, and the next video ready to go.
+                if (VideoSettings.autoplay && index >= queue.size - 2) extend()
+                upNext?.let { next -> scope.launch { runCatching { VideoStreams.resolve(next.videoId, VideoSettings.request()) } } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                status = "Couldn't play this video. Skipping…"
+                delay(SKIP_DELAY_MS)
+                if (current == video && index + 1 < queue.size) { index++; load() }
+            }
+        }
+    }
+
+    /** Adds music videos related to the last one in the queue. */
+    private fun extend(then: () -> Unit = {}) {
+        if (extending?.isActive == true) return
+        val seed = queue.lastOrNull() ?: return
+        extending = scope.launch {
+            val more = runCatching { VideoFeed.upNext(seed, queue.map { it.videoId }.toSet()) }.getOrDefault(emptyList())
+            if (more.isNotEmpty()) queue = (queue + more).distinctBy { it.videoId }
+            then()
+        }
+    }
+
+    private fun mediaSourceFor(source: VideoStreams.Source, video: Video): MediaSource {
+        val http = OkHttpDataSource.Factory(Http.client).setDefaultRequestProperties(source.headers)
+        val item = MediaItem.Builder()
+            .setMediaId(video.videoId)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(video.title).setArtist(video.artist).build())
+
+        val hls = source.hlsUrl
+        if (source.isHls && hls != null) {
+            return HlsMediaSource.Factory(http)
+                .createMediaSource(item.setUri(hls).setMimeType(MimeTypes.APPLICATION_M3U8).build())
+        }
+        val chunked = ChunkedDataSource.Factory(http)
+        val picture = ProgressiveMediaSource.Factory(chunked)
+            .createMediaSource(item.setUri(source.videoUrl.orEmpty()).build())
+        val sound = source.audioUrl ?: return picture
+        return MergingMediaSource(
+            picture,
+            ProgressiveMediaSource.Factory(chunked).createMediaSource(MediaItem.fromUri(sound)),
+        )
+    }
+
+    private companion object {
+        const val SKIP_DELAY_MS = 2500L
+        const val RESTART_THRESHOLD_MS = 5000L
+    }
+}

@@ -1,0 +1,41 @@
+# OpenTune Videos (the music-video TV app): a quick build of just that app,
+# so its APK is ready to download without waiting on the full CI.
+name: OpenTune Videos (TV)
+
+on:
+  push:
+    paths:
+      - "videotv/**"
+      - "core/**"
+      - ".github/workflows/videotv.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: videotv-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;27.2.12479018 cmake;3.22.1
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build the debug APK
+        run: ./gradlew --no-daemon :videotv:assembleDebug
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenTune-Videos-TV
+          path: videotv/build/outputs/apk/debug/*.apk

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher banner (320×180): a play mark and the app's name. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#0B0B0F" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#9CC2FF" android:pathData="M60,50h80a20,20 0,0 1,20 20v40a20,20 0,0 1,-20 20h-80a20,20 0,0 1,-20 -20v-40a20,20 0,0 1,20 -20z" />
+    <path android:fillColor="#0B0B0F" android:pathData="M88,68L122,90L88,112Z" />
+    <path android:fillColor="#F2F2F5" android:pathData="M180,70h100v12h-100z" />
+    <path android:fillColor="#A6A6B2" android:pathData="M180,96h70v10h-70z" />
+</vector>
