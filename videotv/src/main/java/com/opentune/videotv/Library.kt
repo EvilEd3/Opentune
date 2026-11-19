@@ -74,6 +74,13 @@ fun LibraryScreen(
     val signedIn by AccountStore.signedIn.collectAsState()
     val account by AccountStore.account.collectAsState()
 
+    // A playlist opened from Home (a mix) or by search works without an account too.
+    val open = state.open
+    if (open != null) {
+        PlaylistPage(state, open, pick, quickAdd, playAll, queueAll)
+        return
+    }
+
     if (!signedIn) {
         Column(Modifier.padding(horizontal = TvSafe.Horizontal, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Your playlists", style = MaterialTheme.typography.headlineMedium)
@@ -87,11 +94,6 @@ fun LibraryScreen(
         return
     }
 
-    val open = state.open
-    if (open != null) {
-        PlaylistPage(state, open, pick, quickAdd, playAll, queueAll)
-        return
-    }
 
     LaunchedEffect(signedIn, state.reload) {
         if (state.playlists is Load.Done && state.reload == 0) return@LaunchedEffect

@@ -138,6 +138,16 @@ object VideoFeed {
         songs.map { it.toVideo() }.distinctBy { it.videoId }
     }
 
+    /** The first public playlist YouTube Music finds for [query]. */
+    suspend fun findPlaylist(query: String): PlaylistCard? = withContext(Dispatchers.IO) {
+        MusicRepository.search(query, SearchFilter.PLAYLISTS)
+            .firstNotNullOfOrNull { (it as? SearchResult.Browse)?.item }
+            ?.let { item ->
+                val id = if (item.browseId.startsWith("VL")) item.browseId else "VL${item.browseId}"
+                PlaylistCard(id, item.title, item.subtitle, item.thumbnailUrl)
+            }
+    }
+
     private const val LIKED = "LIKED"
 
     private val versions = java.util.concurrent.ConcurrentHashMap<String, Video>()

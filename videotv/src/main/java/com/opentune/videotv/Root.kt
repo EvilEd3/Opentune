@@ -62,7 +62,11 @@ private enum class Tab(val label: String) {
  * here, so coming back from a video finds it as it was.
  */
 @Composable
-fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
+fun Root(
+    voice: MutableStateFlow<String?>,
+    remote: TvRemote? = null,
+    playlistQuery: MutableStateFlow<String?> = MutableStateFlow(null),
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val session = remember { VideoSession(context.applicationContext, scope) }
@@ -170,6 +174,19 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
         LaunchedEffect(phonesNow.isNotEmpty(), input) {
             while (phonesNow.isNotEmpty()) { remote.push(input.now()); delay(NOW_EVERY_MS) }
         }
+    }
+
+    // A playlist asked for by search (the automated test's way in): open the first found.
+    val wantedPlaylist by playlistQuery.collectAsState()
+    LaunchedEffect(wantedPlaylist) {
+        val q = wantedPlaylist ?: return@LaunchedEffect
+        val card = runCatching { VideoFeed.findPlaylist(q) }.getOrNull()
+        if (card != null) {
+            playing = false
+            tab = Tab.Library
+            library.open = card
+        }
+        playlistQuery.value = null
     }
 
     // "Play … on OpenTune Videos" from the TV's voice search: search for it and play the first.

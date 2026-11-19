@@ -1,5 +1,12 @@
-# OpenTune Videos (the music-video TV app): builds just that app on every push
-# that touches it, and publishes it at a fixed address:
+# OpenTune Videos (the music-video TV app).
+#
+# Every push that touches it: build, then test on an emulated 1080p TV
+# (.github/scripts/videotv-smoke.sh drives it with remote keys, takes
+# screenshots and measures smoothness). Results go to the
+# `videotv-test-results` branch. Nothing is published by a push.
+#
+# Publishing is by hand: Actions → OpenTune Videos (TV) → Run workflow, with
+# "publish" ticked. The tested APK then goes to the fixed address
 #   https://github.com/<owner>/<repo>/releases/download/videotv-latest/OpenTune-Videos.apk
 #
 # With the signing secrets set (Settings → Secrets and variables → Actions):
@@ -15,7 +22,13 @@ on:
       - "videotv/**"
       - "core/**"
       - ".github/workflows/videotv.yml"
+      - ".github/scripts/videotv-smoke.sh"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the tested APK to the fixed download link"
+        type: boolean
+        default: false
 
 concurrency:
   group: videotv-${{ github.ref }}
@@ -26,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
     env:
       HAS_KEY: ${{ secrets.VIDEOTV_KEYSTORE != '' }}
     steps:
@@ -55,29 +68,97 @@ jobs:
           OPENTUNE_KEY_PASSWORD: ${{ secrets.VIDEOTV_KEYSTORE_PASSWORD }}
         run: |
           ./gradlew --no-daemon :videotv:assembleRelease -PvideotvBuild=${{ github.run_number }}
-          cp videotv/build/outputs/apk/release/*.apk "$RUNNER_TEMP/OpenTune-Videos.apk"
+          mkdir -p "$RUNNER_TEMP/out"
+          cp videotv/build/outputs/apk/release/*.apk "$RUNNER_TEMP/out/OpenTune-Videos.apk"
+          echo "signed release" > "$RUNNER_TEMP/out/kind.txt"
 
       - name: Build the debug APK
         if: env.HAS_KEY != 'true'
         run: |
           ./gradlew --no-daemon :videotv:assembleDebug -PvideotvBuild=${{ github.run_number }}
-          cp videotv/build/outputs/apk/debug/*.apk "$RUNNER_TEMP/OpenTune-Videos.apk"
+          mkdir -p "$RUNNER_TEMP/out"
+          cp videotv/build/outputs/apk/debug/*.apk "$RUNNER_TEMP/out/OpenTune-Videos.apk"
+          echo "debug build (signing secrets not set)" > "$RUNNER_TEMP/out/kind.txt"
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         with:
           name: OpenTune-Videos-TV
-          path: ${{ runner.temp }}/OpenTune-Videos.apk
+          path: ${{ runner.temp }}/out/
 
-      - name: Publish at the fixed download link
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/videotv'
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenTune-Videos-TV
+          path: ${{ runner.temp }}/apk
+
+      - name: Let the emulator use the CPU's virtualisation
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Drive the app on an emulated 1080p TV
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: tv_1080p
+          ram-size: 4096M
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/videotv-smoke.sh "${{ runner.temp }}/apk/OpenTune-Videos.apk" "${{ runner.temp }}/results"
+
+      - name: Show the summary
+        if: always()
+        run: |
+          cat "${{ runner.temp }}/results/summary.txt" || true
+          echo "---- smoothness ----"
+          cat "${{ runner.temp }}/results/jank.txt" || true
+
+      - name: Save the results to the videotv-test-results branch
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          kind=$([ "$HAS_KEY" = "true" ] && echo "signed release" || echo "debug build (signing secrets not set)")
+          cd "${{ runner.temp }}/results" || exit 0
+          cp "${{ runner.temp }}/apk/kind.txt" . 2>/dev/null || true
+          echo "${GITHUB_SHA}" > commit.txt
+          git init -q
+          git checkout -q -b videotv-test-results
+          git add -A
+          git -c user.name="videotv-test" -c user.email="videotv-test@users.noreply.github.com" \
+            commit -q -m "Test results for ${GITHUB_SHA::7} (run ${{ github.run_number }})"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:videotv-test-results
+
+  publish:
+    needs: [build, test]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: OpenTune-Videos-TV
+          path: out
+      - name: Publish at the fixed download link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          kind=$(cat out/kind.txt)
           gh release delete videotv-latest --yes --cleanup-tag || true
-          gh release create videotv-latest "$RUNNER_TEMP/OpenTune-Videos.apk" \
+          gh release create videotv-latest out/OpenTune-Videos.apk \
             --target "$GITHUB_SHA" \
             --title "OpenTune Videos (TV) — build ${{ github.run_number }}" \
-            --notes "Latest OpenTune Videos for Android TV: $kind, from ${GITHUB_SHA::7}. Download: https://github.com/${{ github.repository }}/releases/download/videotv-latest/OpenTune-Videos.apk" \
+            --notes "Latest OpenTune Videos for Android TV: $kind, from ${GITHUB_SHA::7}, tested on an emulated TV first. Download: https://github.com/${{ github.repository }}/releases/download/videotv-latest/OpenTune-Videos.apk" \
             --latest
