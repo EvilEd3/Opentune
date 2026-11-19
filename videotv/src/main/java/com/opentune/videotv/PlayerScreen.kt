@@ -103,6 +103,12 @@ fun PlayerScreen(
         onDispose { KeyHook.handler = null }
     }
 
+    // The picture is only fetched and decoded while it's on screen.
+    DisposableEffect(Unit) {
+        session.showPicture(true)
+        onDispose { session.showPicture(false) }
+    }
+
     // Leaving the TV app (Home button, input switch) pauses; nothing plays unseen.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {

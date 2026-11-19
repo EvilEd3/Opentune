@@ -280,6 +280,19 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
 
     fun pause() = exo.pause()
 
+    /**
+     * Whether the picture is wanted: only while the player is full screen.
+     * Browsing, the video track is switched off, so ExoPlayer neither
+     * downloads nor decodes it and only the sound plays — the pages stay
+     * smooth on a TV's modest chip. Turning it back on brings the picture
+     * back within a moment, from where the sound is.
+     */
+    fun showPicture(on: Boolean) {
+        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !on)
+            .build()
+    }
+
     fun release() {
         loading?.cancel()
         extending?.cancel()

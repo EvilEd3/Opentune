@@ -1,9 +1,7 @@
 package com.opentune.videotv
 
 import android.view.KeyEvent
-import android.view.LayoutInflater
 import androidx.activity.compose.BackHandler
-import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -25,8 +22,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.KeyEventType
@@ -44,9 +44,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
 /** One choice in an [ActionMenu]. */
@@ -197,52 +194,57 @@ fun QueueScreen(session: VideoSession, onOpen: (Int) -> Unit, onClearUpcoming: (
 }
 
 /**
- * What's playing, down the right of every page while browsing: the video
- * itself, so it is never out of sight, with its title and what comes next.
- * OK on the picture (or Back on a main page) goes back to full screen.
+ * What's playing, in the top right of every page while browsing: its cover,
+ * title and artist, and whether it's playing. Light on purpose — no video is
+ * drawn here (the sound carries on, the picture waits for full screen), so
+ * browsing stays smooth. OK on it, or Back on a main page, returns to the
+ * video full screen.
  */
-@OptIn(UnstableApi::class)
 @Composable
 fun NowPlayingPanel(session: VideoSession, onOpen: () -> Unit, modifier: Modifier = Modifier) {
     val video = session.current ?: return
     val shape = RoundedCornerShape(14.dp)
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        TvSurface(
-            onClick = onOpen,
-            shape = shape,
-            scale = 1.04f,
-            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-        ) { _ ->
-            AndroidView(
-                factory = { context ->
-                    (LayoutInflater.from(context).inflate(R.layout.mini_player, null, false) as PlayerView).apply {
-                        player = session.player
-                        isFocusable = false
-                        descendantFocusability = android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                    }
-                },
-                onRelease = { it.player = null },
-                modifier = Modifier.matchParentSize().clip(shape),
-            )
+    var isPlaying by remember { mutableStateOf(session.exo.isPlaying) }
+    DisposableEffect(session) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
         }
-        Text(video.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(
-            session.status ?: listOfNotNull(video.artist, session.quality).joinToString("  ·  "),
-            style = MaterialTheme.typography.bodySmall,
-            color = if (session.status != null) TvColors.Accent else TvColors.TextDim,
-            maxLines = 2, overflow = TextOverflow.Ellipsis,
-        )
-        session.upNext?.let { next ->
-            Text(
-                "Up next: ${next.title}",
-                style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+        session.exo.addListener(listener)
+        onDispose { session.exo.removeListener(listener) }
+    }
+    TvSurface(onClick = onOpen, shape = shape, scale = 1.04f, modifier = modifier) { focused ->
+        Row(
+            Modifier
+                .background(if (focused) TvColors.SurfaceHigh else TvColors.Surface, shape)
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Box(Modifier.size(width = 96.dp, height = 54.dp), contentAlignment = Alignment.Center) {
+                Cover(video.thumbnail, Modifier.matchParentSize(), RoundedCornerShape(8.dp))
+                Box(
+                    Modifier.size(28.dp).background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(50)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        if (isPlaying) Icons.Rounded.GraphicEq else Icons.Rounded.Pause,
+                        null, Modifier.size(18.dp), tint = TvColors.Accent,
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (isPlaying) "Now playing" else "Paused",
+                    style = MaterialTheme.typography.labelSmall, color = TvColors.Accent,
+                )
+                Text(video.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    session.status ?: video.artist,
+                    style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
-        Text(
-            "OK on the video or Back: full screen",
-            style = MaterialTheme.typography.labelSmall, color = TvColors.TextDim.copy(alpha = 0.7f),
-        )
     }
 }
 

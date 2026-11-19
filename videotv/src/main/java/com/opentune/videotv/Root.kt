@@ -199,41 +199,30 @@ fun Root(voice: MutableStateFlow<String?>, remote: TvRemote? = null) {
                 tell = { tell(it) },
             )
         } else {
-            // Browsing: the pages on the left, and the video, still playing, down the right.
-            Row(Modifier.fillMaxSize().background(TvColors.Background)) {
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    when {
-                        pairing && remote != null -> PairPhoneScreen(remote, onClose = { pairing = false })
-                        signingIn -> SignInScreen(onClose = { signingIn = false; library.reload++; reload++ })
-                        else -> Browse(
-                            tab = tab,
-                            onTab = { tab = it },
-                            session = session,
-                            onNowPlaying = { playing = true },
-                            rows = rows,
-                            homeList = homeList,
-                            onRetry = { reload++ },
-                            search = search,
-                            library = library,
-                            onSignIn = { signingIn = true },
-                            remote = remote,
-                            onPair = { pairing = true },
-                            pick = pick,
-                            quickAdd = quickAdd,
-                            playAll = playAll,
-                            queueAll = queueAll,
-                            openPlaylist = openPlaylist,
-                            onQueueItem = { queueItem = it },
-                        )
-                    }
-                }
-                if (session.current != null) {
-                    NowPlayingPanel(
-                        session,
-                        onOpen = { playing = true },
-                        modifier = Modifier
-                            .width(NOW_PLAYING_WIDTH)
-                            .padding(top = TvSafe.Vertical, end = TvSafe.Horizontal, bottom = TvSafe.Vertical),
+            // Browsing: the pages, with what's playing at the end of the tab bar.
+            Box(Modifier.fillMaxSize().background(TvColors.Background)) {
+                when {
+                    pairing && remote != null -> PairPhoneScreen(remote, onClose = { pairing = false })
+                    signingIn -> SignInScreen(onClose = { signingIn = false; library.reload++; reload++ })
+                    else -> Browse(
+                        tab = tab,
+                        onTab = { tab = it },
+                        session = session,
+                        onNowPlaying = { playing = true },
+                        rows = rows,
+                        homeList = homeList,
+                        onRetry = { reload++ },
+                        search = search,
+                        library = library,
+                        onSignIn = { signingIn = true },
+                        remote = remote,
+                        onPair = { pairing = true },
+                        pick = pick,
+                        quickAdd = quickAdd,
+                        playAll = playAll,
+                        queueAll = queueAll,
+                        openPlaylist = openPlaylist,
+                        onQueueItem = { queueItem = it },
                     )
                 }
             }
@@ -330,15 +319,22 @@ private fun Browse(
                 Text("OpenTune Videos", style = MaterialTheme.typography.titleLarge, color = TvColors.Accent)
                 Spacer(Modifier.width(24.dp))
             }
-            Tab.entries.forEach { t ->
-                if (t == Tab.Queue && session.queue.isEmpty()) return@forEach
-                TvPill(
-                    label = if (t == Tab.Queue) "Queue (${session.queue.size - session.index - 1})" else t.label,
-                    selected = tab == t,
-                    onClick = { onTab(t) },
-                    focusRequester = if (t == Tab.Home) homeTab else null,
-                )
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Tab.entries.forEach { t ->
+                    if (t == Tab.Queue && session.queue.isEmpty()) return@forEach
+                    TvPill(
+                        label = if (t == Tab.Queue) "Queue (${session.queue.size - session.index - 1})" else t.label,
+                        selected = tab == t,
+                        onClick = { onTab(t) },
+                        focusRequester = if (t == Tab.Home) homeTab else null,
+                    )
+                }
             }
+            NowPlayingPanel(session, onOpen = onNowPlaying, modifier = Modifier.width(NOW_PLAYING_WIDTH))
         }
         Spacer(Modifier.height(4.dp))
         when (tab) {
@@ -362,8 +358,8 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 /** How often a connected phone is told what's playing. */
 private const val NOW_EVERY_MS = 700L
 
-/** The now-playing column down the right while browsing. */
-private val NOW_PLAYING_WIDTH = 340.dp
+/** The now-playing card at the end of the tab bar. */
+private val NOW_PLAYING_WIDTH = 320.dp
 
 /** How long "Added to queue" stays up. */
 private const val NOTICE_MS = 2_500L
