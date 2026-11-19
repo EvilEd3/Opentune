@@ -115,11 +115,14 @@ adb logcat -d 2>/dev/null | grep -E "OpenTune|AndroidRuntime|FATAL|ExoPlayer|Med
 
 if [ -n "$CLIP" ] && [ -f "$CLIP" ]; then
   say "== 11. the player's controls, on a 20-minute test clip"
-  CLIPDIR="/sdcard/Android/data/$PKG/files"
-  adb shell mkdir -p "$CLIPDIR"
-  adb push "$CLIP" "$CLIPDIR/clip.mp4" >/dev/null 2>&1 && say "clip pushed"
+  # Served over the emulator's loopback (adb reverse) by a small web server that
+  # answers byte ranges, as YouTube's servers do, so seeking works as it would.
+  python3 "$(dirname "$0")/range-server.py" "$(dirname "$CLIP")" 8099 > "$OUT/range-server.log" 2>&1 &
+  SERVER=$!
+  sleep 1
+  adb reverse tcp:8099 tcp:8099 >/dev/null && say "clip served on the emulator's 127.0.0.1:8099"
   adb logcat -c
-  adb shell "am start -n $PKG/.MainActivity --es opentune.test.video_url file://$CLIPDIR/clip.mp4" >/dev/null
+  adb shell "am start -n $PKG/.MainActivity --es opentune.test.video_url http://127.0.0.1:8099/$(basename "$CLIP")" >/dev/null
   sleep 12
   shot 20-clip-playing
   sleep 6
@@ -163,6 +166,7 @@ if [ -n "$CLIP" ] && [ -f "$CLIP" ]; then
   alive clip-end
   adb logcat -d 2>/dev/null | grep "test:" | sed 's/^.*test: /[player] /' >> "$OUT/summary.txt"
   grep '^\[player\]' "$OUT/summary.txt" | tail -60
+  kill "$SERVER" 2>/dev/null
 fi
 
 say "== logs"

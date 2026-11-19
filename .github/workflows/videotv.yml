@@ -22,7 +22,7 @@ on:
       - "videotv/**"
       - "core/**"
       - ".github/workflows/videotv.yml"
-      - ".github/scripts/videotv-smoke.sh"
+      - ".github/scripts/**"
   workflow_dispatch:
     inputs:
       publish:
