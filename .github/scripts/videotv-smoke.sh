@@ -2,7 +2,7 @@
 # Drives OpenTune Videos on an emulator the way a TV remote would, taking a
 # screenshot at each step and measuring how smooth the pages are.
 #
-#   videotv-smoke.sh <apk> <results-dir>
+#   videotv-smoke.sh <apk> <results-dir> [test-clip.mp4]
 #
 # Writes <results-dir>/NN-step.png, jank.txt (Android's frame statistics per
 # step), summary.txt (what happened), logcat.txt and crash.txt. Never stops
@@ -10,6 +10,7 @@
 set -u
 APK="$1"
 OUT="$2"
+CLIP="${3:-}"
 PKG=com.opentune.videotv
 mkdir -p "$OUT"
 : > "$OUT/summary.txt"
@@ -108,9 +109,65 @@ sleep 4
 shot 15-back-to-full-screen
 alive end
 
-say "== logs"
+say "== logs (YouTube part)"
 adb logcat -d -b crash > "$OUT/crash.txt" 2>/dev/null
+adb logcat -d 2>/dev/null | grep -E "OpenTune|AndroidRuntime|FATAL|ExoPlayer|MediaCodec.*rror" | tail -600 > "$OUT/logcat-youtube.txt"
+
+if [ -n "$CLIP" ] && [ -f "$CLIP" ]; then
+  say "== 11. the player's controls, on a 20-minute test clip"
+  CLIPDIR="/sdcard/Android/data/$PKG/files"
+  adb shell mkdir -p "$CLIPDIR"
+  adb push "$CLIP" "$CLIPDIR/clip.mp4" >/dev/null 2>&1 && say "clip pushed"
+  adb logcat -c
+  adb shell "am start -n $PKG/.MainActivity --es opentune.test.video_url file://$CLIPDIR/clip.mp4" >/dev/null
+  sleep 12
+  shot 20-clip-playing
+  sleep 6
+  shot 21-clip-controls-hidden
+  say "-- Right x3 (expect +30 s), then Left (expect -10 s)"
+  key DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT
+  shot 22-after-right-x3
+  key DPAD_LEFT
+  shot 23-after-left
+  sleep 3
+  say "-- OK with the controls hidden (expect: paused, controls up, focus on Play/Pause)"
+  key DPAD_CENTER
+  sleep 1.5
+  shot 24-after-ok
+  say "-- OK again (expect: playing)"
+  key DPAD_CENTER
+  sleep 1.5
+  shot 25-after-ok-again
+  say "-- Down to the time bar, Right x3 (expect about +30 s, not +3 min)"
+  key DPAD_DOWN
+  shot 26-time-bar-focused
+  key DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT
+  sleep 2.5
+  shot 27-after-time-bar-x3
+  say "-- leave to the pages while it plays"
+  sleep 6
+  key BACK
+  sleep 5
+  shot 28-pages-while-clip-plays
+  jank_reset
+  key DPAD_DOWN DPAD_DOWN DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_DOWN DPAD_UP DPAD_UP DPAD_LEFT
+  jank pages-scroll-while-clip-plays
+  say "-- Back to full screen (expect: no pause, no jump)"
+  key BACK
+  sleep 1
+  key BACK
+  sleep 4
+  shot 29-back-in-full-screen
+  sleep 5
+  shot 30-full-screen-5s-later
+  alive clip-end
+  adb logcat -d 2>/dev/null | grep "test:" | sed 's/^.*test: /[player] /' >> "$OUT/summary.txt"
+  grep '^\[player\]' "$OUT/summary.txt" | tail -60
+fi
+
+say "== logs"
+adb logcat -d -b crash >> "$OUT/crash.txt" 2>/dev/null
 adb logcat -d 2>/dev/null | grep -E "OpenTune|AndroidRuntime|FATAL|ExoPlayer|MediaCodec.*rror" | tail -600 > "$OUT/logcat.txt"
 if [ -s "$OUT/crash.txt" ]; then say "CRASHES: see crash.txt"; else say "no crashes logged"; fi
-grep -E "video .* via |playback failed|no stream|gave no video" "$OUT/logcat.txt" | tail -20 | sed 's/^/[playback] /' | tee -a "$OUT/summary.txt"
+grep -E "video .* via |playback failed|no stream|gave no video" "$OUT/logcat-youtube.txt" | tail -20 | sed 's/^/[playback] /' | tee -a "$OUT/summary.txt"
 exit 0

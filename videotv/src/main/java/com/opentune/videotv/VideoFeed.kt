@@ -30,6 +30,8 @@ data class Video(
     val isVideo: Boolean = true,
     /** The cover YouTube Music gave a song, where it isn't a video's own frame. */
     val art: String? = null,
+    /** A file or URL to play as it is, not a YouTube video: the automated test's own clip. */
+    val directUrl: String? = null,
 ) {
     /**
      * YouTube's own frame for the video, 480×360 with the picture letterboxed

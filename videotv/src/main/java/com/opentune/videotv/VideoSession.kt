@@ -105,7 +105,18 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
 
     init {
         exo.addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                android.util.Log.i(TAG, "test: isPlaying=$isPlaying at ${exo.currentPosition / 1000}s")
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
+                val name = when (playbackState) {
+                    Player.STATE_BUFFERING -> "BUFFERING"
+                    Player.STATE_READY -> "READY"
+                    Player.STATE_ENDED -> "ENDED"
+                    else -> "IDLE"
+                }
+                android.util.Log.i(TAG, "test: state=$name at ${exo.currentPosition / 1000}s")
                 if (playbackState == Player.STATE_ENDED && VideoSettings.autoplay) next()
             }
 
@@ -280,17 +291,17 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
 
     fun pause() = exo.pause()
 
-    /**
-     * Whether the picture is wanted: only while the player is full screen.
-     * Browsing, the video track is switched off, so ExoPlayer neither
-     * downloads nor decodes it and only the sound plays — the pages stay
-     * smooth on a TV's modest chip. Turning it back on brings the picture
-     * back within a moment, from where the sound is.
-     */
-    fun showPicture(on: Boolean) {
-        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !on)
-            .build()
+    /** How far one press of Left or Right, or one step along the time bar, moves. */
+    fun seekBy(deltaMs: Long) {
+        val duration = exo.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        val to = (exo.currentPosition + deltaMs).coerceIn(0L, (duration - 1_000).coerceAtLeast(0L))
+        exo.seekTo(to)
+        android.util.Log.i(TAG, "test: seek ${deltaMs / 1000}s to ${to / 1000}s")
+    }
+
+    fun togglePlay() {
+        if (exo.isPlaying) exo.pause() else exo.play()
+        android.util.Log.i(TAG, "test: ${if (exo.playWhenReady) "play" else "pause"} at ${exo.currentPosition / 1000}s")
     }
 
     fun release() {
@@ -316,6 +327,21 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
             try {
                 // A song from a playlist: play its music video, if it has one,
                 // and otherwise the song itself (its picture is the cover).
+                // A test video (the automated TV test's own file): straight to the player.
+                video.directUrl?.let { url ->
+                    playing = null
+                    exo.setMediaItem(
+                        MediaItem.Builder().setUri(url).setMediaId(video.videoId)
+                            .setMediaMetadata(MediaMetadata.Builder().setTitle(video.title).setArtist(video.artist).build())
+                            .build(),
+                        resumeAt,
+                    )
+                    exo.prepare()
+                    exo.playWhenReady = true
+                    status = null
+                    quality = "Test video"
+                    return@launch
+                }
                 val playable = if (video.isVideo) video else VideoFeed.videoVersion(video) ?: video
                 if (playable !== video && queue.getOrNull(index)?.videoId == video.videoId) {
                     queue = queue.toMutableList().also { it[index] = playable }

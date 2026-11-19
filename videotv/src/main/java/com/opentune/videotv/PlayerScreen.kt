@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -30,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -52,6 +54,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
@@ -88,25 +91,47 @@ fun PlayerScreen(
         }
     }
 
-    // Down with the controls hidden opens Up next, before the video view takes it as "show controls".
+    // With the controls hidden, the remote acts on the video directly, before the
+    // video view can take a press as just "show the controls":
+    //   OK          pause / play, and show the controls with focus on Pause
+    //   Left/Right  back / forward 10 seconds (hold to keep going)
+    //   Down        the Up next panel
     val shown by rememberUpdatedState(controlsShown)
     val open by rememberUpdatedState(panel)
+    var seekNote by remember { mutableStateOf<String?>(null) }
+    var seekStamp by remember { mutableIntStateOf(0) }
     DisposableEffect(Unit) {
-        KeyHook.handler = { event ->
-            if (!open && !shown && event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (event.action == KeyEvent.ACTION_DOWN) panel = true
-                true
-            } else {
-                false
+        KeyHook.handler = handler@{ event ->
+            if (open || shown || holding != null) return@handler false
+            val down = event.action == KeyEvent.ACTION_DOWN
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (down) panel = true
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                    if (down && event.repeatCount == 0) {
+                        session.togglePlay()
+                        view?.let { v -> v.showController(); focusPlayPause(v) }
+                    }
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    if (down) {
+                        val back = event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                        session.seekBy(if (back) -SEEK_STEP_MS else SEEK_STEP_MS)
+                        seekNote = (if (back) "◀◀  10 s" else "10 s  ▶▶")
+                        seekStamp++
+                    }
+                    true
+                }
+                else -> false
             }
         }
         onDispose { KeyHook.handler = null }
     }
-
-    // The picture is only fetched and decoded while it's on screen.
-    DisposableEffect(Unit) {
-        session.showPicture(true)
-        onDispose { session.showPicture(false) }
+    LaunchedEffect(seekStamp) {
+        if (seekNote != null) { delay(SEEK_NOTE_MS); seekNote = null }
     }
 
     // Leaving the TV app (Home button, input switch) pauses; nothing plays unseen.
@@ -147,8 +172,15 @@ fun PlayerScreen(
                     isFocusable = true
                     isFocusableInTouchMode = true
                     setControllerVisibilityListener(
-                        PlayerView.ControllerVisibilityListener { visibility -> controlsShown = visibility == View.VISIBLE },
+                        PlayerView.ControllerVisibilityListener { visibility ->
+                            controlsShown = visibility == View.VISIBLE
+                            // Controls up: focus on Pause, not the settings gear, so OK pauses.
+                            if (visibility == View.VISIBLE) focusPlayPause(this)
+                        },
                     )
+                    // One step along the time bar is 10 seconds, not 5% of the video
+                    // (three minutes, on an hour-long one).
+                    findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(SEEK_STEP_MS)
                     view = this
                     post { requestFocus(); showController() }
                 }
@@ -162,6 +194,16 @@ fun PlayerScreen(
             onRelease = { it.player = null },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // Where a Left or Right press landed.
+        AnimatedVisibility(
+            visible = seekNote != null,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
+            SeekNote(session, seekNote.orEmpty(), seekStamp)
+        }
 
         // What's playing, over the top of the picture while the controls are up.
         AnimatedVisibility(
@@ -332,4 +374,48 @@ private fun UpNextPanel(
     }
 }
 
+/** The time bar and the position, for a moment after Left or Right. */
+@Composable
+private fun SeekNote(session: VideoSession, note: String, stamp: Int) {
+    val position = remember(stamp) { session.exo.currentPosition.coerceAtLeast(0L) }
+    val duration = session.exo.duration.takeIf { it > 0 } ?: 0L
+    Column(
+        Modifier
+            .padding(horizontal = TvSafe.Horizontal, vertical = TvSafe.Vertical)
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.7f), androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(note, style = MaterialTheme.typography.titleMedium, color = TvColors.Accent, modifier = Modifier.weight(1f))
+            Text("${clock(position)} / ${clock(duration)}", style = MaterialTheme.typography.titleMedium)
+        }
+        Box(Modifier.fillMaxWidth().height(6.dp).background(Color.White.copy(alpha = 0.25f), androidx.compose.foundation.shape.RoundedCornerShape(3.dp))) {
+            val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+            Box(Modifier.fillMaxWidth(fraction).height(6.dp).background(TvColors.Accent, androidx.compose.foundation.shape.RoundedCornerShape(3.dp)))
+        }
+    }
+}
+
+/** 75_000 → "1:15"; an hour or more → "1:02:05". */
+private fun clock(ms: Long): String {
+    val total = ms / 1000
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val sec = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
+}
+
+/** Puts focus on the controls' Play/Pause button once they're laid out. */
+@OptIn(UnstableApi::class)
+private fun focusPlayPause(view: PlayerView) {
+    view.post { view.findViewById<View>(androidx.media3.ui.R.id.exo_play_pause)?.requestFocus() }
+}
+
 private const val CONTROLS_TIMEOUT_MS = 4000
+
+/** Left, Right and one time-bar step. */
+private const val SEEK_STEP_MS = 10_000L
+
+private const val SEEK_NOTE_MS = 1_500L

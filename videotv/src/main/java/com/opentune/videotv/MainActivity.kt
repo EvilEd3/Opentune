@@ -19,16 +19,20 @@ class MainActivity : ComponentActivity() {
      * playlist page without an account (`--es opentune.test.playlist_query …`).
      */
     private val playlistQuery = MutableStateFlow<String?>(null)
+
+    /** A file to play as a video: the automated test's own clip (`--es opentune.test.video_url …`). */
+    private val testVideo = MutableStateFlow<String?>(null)
     private lateinit var remote: TvRemote
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         voice.value = spokenQuery(intent)
         playlistQuery.value = intent?.getStringExtra(EXTRA_PLAYLIST_QUERY)
+        testVideo.value = intent?.getStringExtra(EXTRA_TEST_VIDEO)
         // Paired phones find this TV and control it for as long as the app is open here.
         remote = TvRemote(this, PairedPhones(PrefsStorage(this, "remote_phones")))
         remote.start()
-        setContent { TvTheme { Root(voice, remote, playlistQuery) } }
+        setContent { TvTheme { Root(voice, remote, playlistQuery, testVideo) } }
     }
 
     override fun onDestroy() {
@@ -44,6 +48,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         spokenQuery(intent)?.let { voice.value = it }
         intent.getStringExtra(EXTRA_PLAYLIST_QUERY)?.let { playlistQuery.value = it }
+        intent.getStringExtra(EXTRA_TEST_VIDEO)?.let { testVideo.value = it }
     }
 
     override fun onStop() {
@@ -57,6 +62,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private const val EXTRA_PLAYLIST_QUERY = "opentune.test.playlist_query"
+private const val EXTRA_TEST_VIDEO = "opentune.test.video_url"
 
 /** A screen's first look at a key, before the focused view gets it (see [MainActivity.dispatchKeyEvent]). */
 object KeyHook {

@@ -99,6 +99,15 @@ jobs:
           name: OpenTune-Videos-TV
           path: ${{ runner.temp }}/apk
 
+      - name: Make a 20-minute test clip (a picture and a tone, nothing from YouTube)
+        run: |
+          command -v ffmpeg >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q ffmpeg; }
+          ffmpeg -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=30 \
+            -f lavfi -i "sine=frequency=440:sample_rate=48000" -t 1200 \
+            -c:v libx264 -preset veryfast -crf 32 -pix_fmt yuv420p -g 60 \
+            -c:a aac -b:a 96k -movflags +faststart "$RUNNER_TEMP/clip.mp4"
+          ls -la "$RUNNER_TEMP/clip.mp4"
+
       - name: Let the emulator use the CPU's virtualisation
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -115,7 +124,7 @@ jobs:
           ram-size: 4096M
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash .github/scripts/videotv-smoke.sh "${{ runner.temp }}/apk/OpenTune-Videos.apk" "${{ runner.temp }}/results"
+          script: bash .github/scripts/videotv-smoke.sh "${{ runner.temp }}/apk/OpenTune-Videos.apk" "${{ runner.temp }}/results" "${{ runner.temp }}/clip.mp4"
 
       - name: Show the summary
         if: always()

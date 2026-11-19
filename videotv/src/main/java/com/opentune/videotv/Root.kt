@@ -68,6 +68,7 @@ fun Root(
     voice: MutableStateFlow<String?>,
     remote: TvRemote? = null,
     playlistQuery: MutableStateFlow<String?> = MutableStateFlow(null),
+    testVideo: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -189,6 +190,15 @@ fun Root(
             library.open = card
         }
         playlistQuery.value = null
+    }
+
+    // The automated test's own clip: played like any video, so the controls can be tried on it.
+    val testUrl by testVideo.collectAsState()
+    LaunchedEffect(testUrl) {
+        val url = testUrl ?: return@LaunchedEffect
+        session.start(listOf(Video("test-clip", "Test video", "OpenTune test", directUrl = url)), 0)
+        playing = true
+        testVideo.value = null
     }
 
     // "Play … on OpenTune Videos" from the TV's voice search: search for it and play the first.
