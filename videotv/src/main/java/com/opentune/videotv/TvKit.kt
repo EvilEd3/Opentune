@@ -79,6 +79,8 @@ fun TvSurface(
     content: @Composable BoxScope.(focused: Boolean) -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    // Remembered when focused, so focus can come back here after a menu closes (see FocusMemory).
+    val me = remember { FocusRequester() }
     // The cursor from a phone's trackpad lights what it is over just as the remote's focus does.
     val source = remember { MutableInteractionSource() }
     val hovered by source.collectIsHoveredAsState()
@@ -89,9 +91,13 @@ fun TvSurface(
         modifier
             .zIndex(if (lit) 1f else 0f)
             .graphicsLayer { scaleX = grow; scaleY = grow }
+            .focusRequester(me)
             .onFocusChanged { state ->
                 focused = state.isFocused
-                if (state.isFocused) onFocused()
+                if (state.isFocused) {
+                    FocusMemory.saw(me)
+                    onFocused()
+                }
             }
             .clip(shape)
             .background(fill, shape)
@@ -319,3 +325,32 @@ fun TvNote(text: String, modifier: Modifier = Modifier) {
 
 /** The wide thin ratio of a shelf card's art, for callers that want a 16:9 tile. */
 fun Modifier.wide(): Modifier = this.aspectRatio(16f / 9f)
+
+/**
+ * Where focus was before a menu opened, to put it back when the menu closes
+ * (otherwise Compose drops it on the first thing on the screen — the Home
+ * tab — and the page seems to jump away).
+ */
+object FocusMemory {
+    private var last: FocusRequester? = null
+    private var held = 0
+
+    fun saw(requester: FocusRequester) {
+        if (held == 0) last = requester
+    }
+
+    /** A menu opened: keep what was focused before it. */
+    fun hold() { held++ }
+
+    /** The menu closed: focus goes back, once the page is laid out again. */
+    fun release() {
+        held = (held - 1).coerceAtLeast(0)
+        if (held > 0) return
+        val target = last ?: return
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            // Not if another menu opened meanwhile (Add to a playlist… opens the picker).
+            { if (held == 0) runCatching { target.requestFocus() } },
+            60,
+        )
+    }
+}

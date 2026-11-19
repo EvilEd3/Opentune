@@ -60,6 +60,11 @@ class MenuAction(val label: String, val primary: Boolean = false, val run: () ->
 @Composable
 fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDismiss: () -> Unit) {
     BackHandler(onBack = onDismiss)
+    // Focus goes back to what was picked when the menu closes.
+    DisposableEffect(Unit) {
+        FocusMemory.hold()
+        onDispose { FocusMemory.release() }
+    }
     val all = actions + MenuAction("Cancel") {}
     val requesters = remember(all.size) { List(all.size) { FocusRequester() } }
     var at by remember { mutableIntStateOf(0) }

@@ -175,26 +175,24 @@ private fun PlaylistPage(
     val first = remember { FocusRequester() }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = TvSafe.Horizontal),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(card.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val count = (state.tracks as? Load.Done)?.value?.size
-                Text(
-                    if (count != null) "$count tracks · songs play as their music videos · hold OK to add one to the queue" else card.subtitle,
-                    style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim,
-                )
+        // The title on its own line, the buttons under it: a long name isn't squeezed to "Top 100 S…".
+        Column(Modifier.fillMaxWidth().padding(horizontal = TvSafe.Horizontal)) {
+            Text(card.title, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val count = (state.tracks as? Load.Done)?.value?.size
+            Text(
+                if (count != null) "$count tracks  ·  songs play as their music videos  ·  hold OK on one to add it to the queue" else card.subtitle,
+                style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                val tracks = (state.tracks as? Load.Done)?.value.orEmpty()
+                if (tracks.isNotEmpty()) {
+                    TvButton("Play", { playAll(tracks) }, icon = Icons.Rounded.PlayArrow, primary = true, focusRequester = first)
+                    TvButton("Shuffle", { playAll(tracks.shuffled()) }, icon = Icons.Rounded.Shuffle)
+                    TvButton("Add all to queue", { queueAll(tracks, false) }, icon = Icons.AutoMirrored.Rounded.QueueMusic)
+                }
+                TvButton("Back", { state.open = null })
             }
-            val tracks = (state.tracks as? Load.Done)?.value.orEmpty()
-            if (tracks.isNotEmpty()) {
-                TvButton("Play", { playAll(tracks) }, icon = Icons.Rounded.PlayArrow, primary = true, focusRequester = first)
-                TvButton("Shuffle", { playAll(tracks.shuffled()) }, icon = Icons.Rounded.Shuffle)
-                TvButton("Add all to queue", { queueAll(tracks, false) }, icon = Icons.AutoMirrored.Rounded.QueueMusic)
-            }
-            TvButton("Back", { state.open = null })
         }
         Spacer(Modifier.height(12.dp))
         when (val t = state.tracks) {

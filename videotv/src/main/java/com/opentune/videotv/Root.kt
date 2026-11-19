@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -199,7 +201,8 @@ fun Root(
         if (found.isNotEmpty()) {
             search.results = Load.Done(found)
             search.searched = q
-            session.start(found, 0)
+            // Just the first, like any pick; autoplay finds what follows.
+            session.start(listOf(found.first()), 0)
             playing = true
         }
         // Last, as clearing it restarts this effect.
@@ -344,9 +347,11 @@ private fun Browse(
                 Tab.entries.forEach { t ->
                     if (t == Tab.Queue && session.queue.isEmpty()) return@forEach
                     TvPill(
-                        label = if (t == Tab.Queue) "Queue (${session.queue.size - session.index - 1})" else t.label,
+                        label = if (t == Tab.Queue) "Queue ${session.queue.size - session.index - 1}" else t.label,
                         selected = tab == t,
                         onClick = { onTab(t) },
+                        // Settings as a gear, so every tab fits beside the now-playing card.
+                        icon = if (t == Tab.Settings) Icons.Rounded.Settings else null,
                         focusRequester = if (t == Tab.Home) homeTab else null,
                     )
                 }
@@ -376,7 +381,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 private const val NOW_EVERY_MS = 700L
 
 /** The now-playing card at the end of the tab bar. */
-private val NOW_PLAYING_WIDTH = 320.dp
+private val NOW_PLAYING_WIDTH = 300.dp
 
 /** How long "Added to queue" stays up. */
 private const val NOTICE_MS = 2_500L
