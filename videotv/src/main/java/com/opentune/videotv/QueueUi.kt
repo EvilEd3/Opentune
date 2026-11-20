@@ -63,7 +63,11 @@ fun ActionMenu(title: String, subtitle: String?, actions: List<MenuAction>, onDi
     // Focus goes back to what was picked when the menu closes.
     DisposableEffect(Unit) {
         FocusMemory.hold()
-        onDispose { FocusMemory.release() }
+        KeyHook.menus++
+        onDispose {
+            KeyHook.menus = (KeyHook.menus - 1).coerceAtLeast(0)
+            FocusMemory.release()
+        }
     }
     val all = actions + MenuAction("Cancel") {}
     val requesters = remember(all.size) { List(all.size) { FocusRequester() } }
@@ -145,6 +149,33 @@ fun PlaylistPicker(video: Video, library: LibraryState, onPick: (PlaylistCard) -
         )
         Load.Failed -> ActionMenu("Add to a playlist", "Couldn't load your playlists.", emptyList(), onDismiss)
         else -> ActionMenu("Add to a playlist", "Loading your playlists…", emptyList(), onDismiss)
+    }
+}
+
+/**
+ * Other videos for a song whose match was wrong: a search by its title and
+ * artist, and "no video" (the song with its cover). The choice is kept.
+ */
+@Composable
+fun VideoChooser(song: Video, onChoose: (Video?) -> Unit, onDismiss: () -> Unit) {
+    var found by remember { mutableStateOf<Load<List<Video>>>(Load.Loading) }
+    LaunchedEffect(song.videoId) {
+        found = try {
+            Load.Done(VideoFeed.alternatives(song))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { Load.Failed }
+    }
+    val noVideo = MenuAction("Play the song without a video") { onChoose(null) }
+    when (val f = found) {
+        is Load.Done -> ActionMenu(
+            title = "Choose the video for “${song.title}”",
+            subtitle = song.artist,
+            actions = f.value.map { v ->
+                MenuAction(listOfNotNull(v.title, v.artist.takeIf { it.isNotBlank() }, v.duration).joinToString("  ·  ")) { onChoose(v) }
+            } + noVideo,
+            onDismiss = onDismiss,
+        )
+        Load.Failed -> ActionMenu("Choose the video for “${song.title}”", "Couldn't search just now.", listOf(noVideo), onDismiss)
+        else -> ActionMenu("Choose the video for “${song.title}”", "Looking for other videos…", emptyList(), onDismiss)
     }
 }
 

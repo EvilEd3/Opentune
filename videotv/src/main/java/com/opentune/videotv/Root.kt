@@ -82,6 +82,10 @@ fun Root(
     var picked by remember { mutableStateOf<Video?>(null) }
     /** A video to save to a playlist: the playlist picker is open for it. */
     var saving by remember { mutableStateOf<Video?>(null) }
+    /** A song whose video is wrong: the chooser of other videos is open for it. */
+    var fixing by remember { mutableStateOf<Video?>(null) }
+    /** Back on Home: asking whether to leave the app. */
+    var leaving by remember { mutableStateOf(false) }
     var queueItem by remember { mutableStateOf<Int?>(null) }
     var notice by remember { mutableStateOf<String?>(null) }
     var noticeId by remember { mutableIntStateOf(0) }
@@ -151,6 +155,9 @@ fun Root(
         MenuAction(if (video.videoId in session.liked) "Unlike" else "Like") { session.toggleLike(video) { tell(it) } },
         MenuAction("Add to a playlist…") { saving = video },
     )
+    /** For a song played as a video: a way to pick the right video when the match is wrong. */
+    fun fixAction(video: Video): List<MenuAction> =
+        if (video.songId != null || !video.isVideo) listOf(MenuAction("Wrong video? Choose another…") { fixing = video }) else emptyList()
     /** A whole list (a playlist): at the end of the queue, or right after the one playing. */
     val queueAll: (List<Video>, Boolean) -> Unit = { list, next ->
         val wasEmpty = session.current == null
@@ -226,6 +233,7 @@ fun Root(
                 onClose = { playing = false },
                 signedIn = signedIn,
                 onSave = { saving = it },
+                onFix = { fixing = it },
                 tell = { tell(it) },
             )
         } else {
@@ -253,6 +261,7 @@ fun Root(
                         queueAll = queueAll,
                         openPlaylist = openPlaylist,
                         onQueueItem = { queueItem = it },
+                        onBackAtHome = { leaving = true },
                     )
                 }
             }
@@ -269,8 +278,37 @@ fun Root(
                     },
                     MenuAction("Play next") { session.playNext(listOf(video)); tell("Playing next: ${video.title}") },
                     MenuAction("Add to queue") { session.addToQueue(listOf(video)); tell("Added to queue: ${video.title}") },
-                ) + accountActions(video),
+                ) + fixAction(video) + accountActions(video),
                 onDismiss = { picked = null },
+            )
+        }
+
+        fixing?.let { video ->
+            VideoChooser(
+                song = video,
+                onChoose = { chosen ->
+                    val fixed = VideoFeed.choose(video, chosen)
+                    if (session.current?.let { (it.songId ?: it.videoId) == (video.songId ?: video.videoId) } == true) {
+                        session.replaceCurrent(fixed)
+                    } else {
+                        session.replaceQueued(video, fixed)
+                    }
+                    tell(if (chosen == null) "“${video.title}” will play without a video" else "“${video.title}” will play this video from now on")
+                },
+                onDismiss = { fixing = null },
+            )
+        }
+
+        if (leaving) {
+            val activity = LocalContext.current.findActivity()
+            ActionMenu(
+                title = "Leave OpenTune Videos?",
+                subtitle = if (session.current != null) "The video will stop." else null,
+                actions = buildList {
+                    if (session.current != null) add(MenuAction("Back to the video", primary = true) { playing = true })
+                    add(MenuAction("Exit", primary = session.current == null) { session.pause(); activity?.finish() })
+                },
+                onDismiss = { leaving = false },
             )
         }
 
@@ -300,6 +338,7 @@ fun Root(
                         } else {
                             add(MenuAction("Watch full screen", primary = true) { playing = true })
                         }
+                        addAll(fixAction(video))
                         addAll(accountActions(video))
                     },
                     onDismiss = { queueItem = null },
@@ -334,10 +373,12 @@ private fun Browse(
     queueAll: (List<Video>, Boolean) -> Unit,
     openPlaylist: (PlaylistCard) -> Unit,
     onQueueItem: (Int) -> Unit,
+    onBackAtHome: () -> Unit,
 ) {
-    // Back on a main page, with a video playing, goes back to it full screen
-    // (pages with somewhere of their own to go back to handle Back first).
-    BackHandler(enabled = session.current != null) { onNowPlaying() }
+    // Back never leaves the app by itself: on another tab it goes to Home, and
+    // on Home it asks (with "Back to the video" first, when one is playing).
+    // Pages with somewhere of their own to go back to (a playlist) handle Back first.
+    BackHandler { if (tab != Tab.Home) onTab(Tab.Home) else onBackAtHome() }
     val homeTab = remember { FocusRequester() }
     Column(Modifier.fillMaxSize()) {
         Row(

@@ -32,6 +32,8 @@ data class Video(
     val art: String? = null,
     /** A file or URL to play as it is, not a YouTube video: the automated test's own clip. */
     val directUrl: String? = null,
+    /** The playlist song this video stands in for, when it was matched to one. */
+    val songId: String? = null,
 ) {
     /**
      * YouTube's own frame for the video, 480×360 with the picture letterboxed
@@ -154,6 +156,48 @@ object VideoFeed {
 
     private val versions = java.util.concurrent.ConcurrentHashMap<String, Video>()
 
+    /** The viewer's own corrections: song → the video they chose for it, kept between launches. */
+    private var matches: android.content.SharedPreferences? = null
+
+    fun init(context: android.content.Context) {
+        matches = context.getSharedPreferences("video_matches", android.content.Context.MODE_PRIVATE)
+    }
+
+    /** What the viewer chose for [songId]: a video, the song itself (no video), or nothing yet. */
+    private fun chosenFor(songId: String, song: Video): Video? {
+        val saved = matches?.getString(songId, null) ?: return null
+        val parts = saved.split('\u0001')
+        val id = parts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return null
+        return if (id == songId) {
+            song.copy(isVideo = true, songId = songId)
+        } else {
+            Video(id, song.title, song.artist, parts.getOrNull(1)?.takeIf { it.isNotBlank() }, songId = songId)
+        }
+    }
+
+    /**
+     * The viewer says [song] should play [video] from now on (or, with null,
+     * the song itself with its cover, no video).
+     */
+    fun choose(song: Video, video: Video?): Video {
+        val key = song.songId ?: song.videoId
+        val original = Video(key, song.title, song.artist, song.duration, isVideo = false, art = song.art)
+        val chosen = if (video == null) {
+            original.copy(isVideo = true, songId = key)
+        } else {
+            Video(video.videoId, song.title, song.artist, video.duration ?: song.duration, songId = key)
+        }
+        matches?.edit()?.putString(key, chosen.videoId + "\u0001" + chosen.duration.orEmpty())?.apply()
+        versions[key] = chosen
+        return chosen
+    }
+
+    /** Other music videos that might be the right one for [video]: a search by its title and artist. */
+    suspend fun alternatives(video: Video): List<Video> =
+        search("${video.title} ${video.artist}")
+            .filter { it.videoId != video.videoId }
+            .take(10)
+
     /**
      * The music video for [song], an audio-only track: YouTube Music's own
      * pairing of the two (its Song/Video switch), or failing that the first
@@ -161,6 +205,7 @@ object VideoFeed {
      */
     suspend fun videoVersion(song: Video): Video? = withContext(Dispatchers.IO) {
         if (song.isVideo) return@withContext song
+        chosenFor(song.videoId, song)?.let { return@withContext it }
         versions[song.videoId]?.let { return@withContext it }
         val target = normalize(song.title)
         val paired = quietly {
@@ -173,7 +218,7 @@ object VideoFeed {
             .firstOrNull { sameSong(normalize(it.title), target) }
         found?.let { video ->
             // The song's own name and credit read better than an upload's title.
-            Video(video.videoId, song.title, song.artist, video.duration ?: song.duration)
+            Video(video.videoId, song.title, song.artist, video.duration ?: song.duration, songId = song.videoId)
                 .also { versions[song.videoId] = it }
         }
     }
@@ -213,9 +258,9 @@ object VideoFeed {
         InnertubeParser.parseHome(Innertube.browse("FEmusic_home"))
             .filter { it.items.isNotEmpty() }
             .take(FOR_YOU_SHELVES)
-            .map { shelf ->
+            .flatMap { shelf ->
                 val looksLikeVideos = shelf.title.contains("video", ignoreCase = true)
-                VideoRow(
+                val row = VideoRow(
                     title = shelf.title,
                     videos = shelf.items.mapNotNull { item ->
                         item.videoId?.let {
@@ -231,6 +276,13 @@ object VideoFeed {
                         if (item.videoId != null || !(id.startsWith("VL") || id.startsWith("RD"))) return@mapNotNull null
                         PlaylistCard(if (id.startsWith("VL")) id else "VL$id", item.title, item.subtitle, item.thumbnailUrl)
                     },
+                )
+                // Videos and mixes in rows of their own: a row's cards all one height,
+                // so it doesn't grow and shrink (and the page jump) as it scrolls.
+                listOfNotNull(
+                    row.copy(playlists = emptyList()).takeIf { it.videos.isNotEmpty() },
+                    row.copy(title = if (row.videos.isEmpty()) row.title else "${row.title}: mixes", videos = emptyList())
+                        .takeIf { it.playlists.isNotEmpty() },
                 )
             }
 

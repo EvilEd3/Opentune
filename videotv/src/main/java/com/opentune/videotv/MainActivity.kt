@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
     /** Keys go past [KeyHook] first: the player takes Down for its Up next panel. */
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
-        KeyHook.handler?.invoke(event) == true || super.dispatchKeyEvent(event)
+        (KeyHook.menus == 0 && KeyHook.handler?.invoke(event) == true) || super.dispatchKeyEvent(event)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -67,4 +67,7 @@ private const val EXTRA_TEST_VIDEO = "opentune.test.video_url"
 /** A screen's first look at a key, before the focused view gets it (see [MainActivity.dispatchKeyEvent]). */
 object KeyHook {
     var handler: ((android.view.KeyEvent) -> Boolean)? = null
+
+    /** Menus open over the screen: while any is, keys go to the menu, not the [handler]. */
+    var menus = 0
 }

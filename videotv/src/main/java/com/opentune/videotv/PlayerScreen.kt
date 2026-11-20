@@ -74,6 +74,7 @@ fun PlayerScreen(
     onClose: () -> Unit,
     signedIn: Boolean,
     onSave: (Video) -> Unit,
+    onFix: (Video) -> Unit,
     tell: (String) -> Unit,
 ) {
     var controlsShown by remember { mutableStateOf(true) }
@@ -251,6 +252,7 @@ fun PlayerScreen(
                 session = session,
                 signedIn = signedIn,
                 onSave = onSave,
+                onFix = { panel = false; onFix(it) },
                 tell = tell,
                 onHold = { holding = it },
                 onClose = { panel = false },
@@ -288,6 +290,7 @@ private fun UpNextPanel(
     session: VideoSession,
     signedIn: Boolean,
     onSave: (Video) -> Unit,
+    onFix: (Video) -> Unit,
     tell: (String) -> Unit,
     onHold: (Int) -> Unit,
     onClose: () -> Unit,
@@ -348,6 +351,7 @@ private fun UpNextPanel(
             } else {
                 TvButton("Close", onClose, focusRequester = firstButton)
             }
+            if (current != null && current.songId != null) TvButton("Wrong video?", { onFix(current) })
             if (upcoming.isNotEmpty()) TvButton("Clear up next", { session.clearUpcoming() })
         }
         if (upcoming.isNotEmpty()) {

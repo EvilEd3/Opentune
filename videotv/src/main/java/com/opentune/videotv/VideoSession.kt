@@ -206,6 +206,19 @@ class VideoSession(context: Context, private val scope: CoroutineScope) {
         next()
     }
 
+    /** Swaps the video playing for [video] (a corrected match), from the start. */
+    fun replaceCurrent(video: Video) {
+        if (current == null) return
+        queue = queue.toMutableList().also { it[index] = video }
+        load()
+    }
+
+    /** Swaps a queued video for [video] wherever it waits, by the song it stands in for. */
+    fun replaceQueued(old: Video, video: Video) {
+        val key = old.songId ?: old.videoId
+        queue = queue.mapIndexed { i, v -> if (i != index && (v.songId ?: v.videoId) == key) video else v }
+    }
+
     /** Empties what's after the one playing. */
     fun clearUpcoming() {
         queue = queue.take(index + 1)

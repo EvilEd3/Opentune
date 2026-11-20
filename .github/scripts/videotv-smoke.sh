@@ -42,6 +42,14 @@ sleep 40
 shot 01-home
 alive home
 
+say "== 1b. Back on Home asks before leaving (expect: Leave OpenTune Videos? / Exit / Cancel)"
+key BACK
+sleep 1.5
+shot 01b-leave-confirm
+key BACK
+sleep 1
+alive after-cancel-leave
+
 say "== 2. scroll Home, nothing playing (baseline smoothness)"
 jank_reset
 key DPAD_DOWN DPAD_DOWN DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_DOWN DPAD_DOWN DPAD_UP DPAD_UP DPAD_LEFT
@@ -91,6 +99,10 @@ shot 10-menu
 key DPAD_DOWN DPAD_DOWN DPAD_DOWN
 sleep 1
 shot 11-menu-after-down
+say "-- OK on the 4th item (Wrong video? for a song; else Cancel)"
+key DPAD_CENTER
+sleep 5
+shot 11b-video-chooser
 key BACK
 sleep 2
 shot 12-playlist-after-menu
@@ -100,11 +112,17 @@ adb shell input keyevent --longpress KEYCODE_DPAD_CENTER
 sleep 2
 shot 13-after-hold-ok
 
-say "== 10. Queue tab and Back to full screen"
+say "== 10. Back: playlist -> Library -> Home -> asks (Back to the video / Exit)"
 key BACK
 sleep 2
 shot 14-library-after-back
 key BACK
+sleep 2
+shot 14b-home-after-back
+key BACK
+sleep 2
+shot 14c-leave-confirm-while-playing
+key DPAD_CENTER
 sleep 4
 shot 15-back-to-full-screen
 alive end
@@ -155,10 +173,10 @@ if [ -n "$CLIP" ] && [ -f "$CLIP" ]; then
   jank_reset
   key DPAD_DOWN DPAD_DOWN DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_DOWN DPAD_UP DPAD_UP DPAD_LEFT
   jank pages-scroll-while-clip-plays
-  say "-- Back to full screen (expect: no pause, no jump)"
+  say "-- Back to full screen through the leave question (expect: no pause, no jump)"
   key BACK
-  sleep 1
-  key BACK
+  sleep 1.5
+  key DPAD_CENTER
   sleep 4
   shot 29-back-in-full-screen
   sleep 5

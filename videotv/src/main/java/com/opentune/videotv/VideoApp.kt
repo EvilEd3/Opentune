@@ -37,6 +37,7 @@ class VideoApp : Application(), SingletonImageLoader.Factory {
         com.opentune.i18n.Tr.use(this, "")
         MusicRepository.init(this)
         VideoSettings.init(this)
+        VideoFeed.init(this)
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
