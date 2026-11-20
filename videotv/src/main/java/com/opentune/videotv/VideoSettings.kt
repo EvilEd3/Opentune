@@ -19,6 +19,13 @@ enum class VideoQuality(val label: String, val maxHeight: Int) {
     Q2160("4K", 2160),
 }
 
+/** How big everything on screen is drawn. Large is the size the app first had. */
+enum class UiSize(val label: String, val scale: Float) {
+    Small("Small", 0.78f),
+    Medium("Medium", 0.88f),
+    Large("Large", 1f),
+}
+
 /** What the viewer has chosen, kept between launches. */
 object VideoSettings {
     private lateinit var prefs: SharedPreferences
@@ -26,6 +33,8 @@ object VideoSettings {
     var quality by mutableStateOf(VideoQuality.Q1080)
         private set
     var autoplay by mutableStateOf(true)
+        private set
+    var size by mutableStateOf(UiSize.Medium)
         private set
 
     /** Whether this TV decodes VP9 in hardware: what makes 1440p and 4K worth offering. */
@@ -40,6 +49,12 @@ object VideoSettings {
             ?: VideoQuality.Q1080
         if (quality.maxHeight > 1080 && !hasHardwareVp9) quality = VideoQuality.Q1080
         autoplay = prefs.getBoolean("autoplay", true)
+        size = prefs.getString("size", null)?.let { n -> UiSize.entries.firstOrNull { it.name == n } } ?: UiSize.Medium
+    }
+
+    fun chooseSize(value: UiSize) {
+        size = value
+        prefs.edit().putString("size", value.name).apply()
     }
 
     fun choices(): List<VideoQuality> =

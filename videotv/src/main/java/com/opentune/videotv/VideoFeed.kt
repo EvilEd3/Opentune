@@ -14,6 +14,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /**
@@ -141,6 +143,52 @@ object VideoFeed {
         }
         songs.map { it.toVideo() }.distinctBy { it.videoId }
     }
+
+    // ---- Searching the account's own library --------------------------------------
+
+    /** What of the signed-in account's library matches a search. */
+    data class LibraryHits(val songs: List<Video>, val playlists: List<PlaylistCard>) {
+        val isEmpty: Boolean get() = songs.isEmpty() && playlists.isEmpty()
+    }
+
+    private class LibraryIndex(val songs: List<Video>, val playlists: List<PlaylistCard>, val at: Long)
+
+    @Volatile private var libraryIndex: LibraryIndex? = null
+    private val indexLock = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * The signed-in account's songs (Liked music and its playlists' tracks)
+     * and playlists that match [query]: every word of it in the title, artist
+     * or playlist name. Empty when signed out. The library is read once and
+     * kept for a quarter of an hour, so searching as you type stays quick.
+     */
+    suspend fun searchLibrary(query: String): LibraryHits = withContext(Dispatchers.IO) {
+        if (!AccountStore.signedIn.value) return@withContext LibraryHits(emptyList(), emptyList())
+        val index = libraryIndex() ?: return@withContext LibraryHits(emptyList(), emptyList())
+        val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (words.isEmpty()) return@withContext LibraryHits(emptyList(), emptyList())
+        fun matches(text: String) = text.lowercase().let { t -> words.all { it in t } }
+        LibraryHits(
+            songs = index.songs.filter { matches("${it.title} ${it.artist}") }.take(LIBRARY_HITS),
+            playlists = index.playlists.filter { matches(it.title) }.take(LIBRARY_HITS),
+        )
+    }
+
+    private suspend fun libraryIndex(): LibraryIndex? = indexLock.withLock {
+        libraryIndex?.takeIf { System.currentTimeMillis() - it.at < LIBRARY_INDEX_MS }?.let { return@withLock it }
+        val lists = runCatching { playlists() }.getOrNull() ?: return@withLock null
+        val gate = kotlinx.coroutines.sync.Semaphore(4)
+        val songs = coroutineScope {
+            lists.take(LIBRARY_PLAYLISTS).map { card ->
+                async { gate.withPermit { quietly { playlist(card.browseId) } } }
+            }.awaitAll().flatten()
+        }.distinctBy { it.videoId }
+        LibraryIndex(songs, lists.filter { it.browseId != LIKED }, System.currentTimeMillis()).also { libraryIndex = it }
+    }
+
+    private const val LIBRARY_HITS = 20
+    private const val LIBRARY_PLAYLISTS = 30
+    private const val LIBRARY_INDEX_MS = 15L * 60 * 1000
 
     /** The first public playlist YouTube Music finds for [query]. */
     suspend fun findPlaylist(query: String): PlaylistCard? = withContext(Dispatchers.IO) {

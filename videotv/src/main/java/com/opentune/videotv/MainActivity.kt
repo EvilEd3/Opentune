@@ -6,6 +6,9 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import com.opentune.data.remote.PairedPhones
 import com.opentune.data.remote.PrefsStorage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,7 +35,14 @@ class MainActivity : ComponentActivity() {
         // Paired phones find this TV and control it for as long as the app is open here.
         remote = TvRemote(this, PairedPhones(PrefsStorage(this, "remote_phones")))
         remote.start()
-        setContent { TvTheme { Root(voice, remote, playlistQuery, testVideo) } }
+        setContent {
+            // Everything drawn at the size chosen in Settings (Small, Medium, Large).
+            val base = LocalDensity.current
+            val scale = VideoSettings.size.scale
+            CompositionLocalProvider(LocalDensity provides Density(base.density * scale, base.fontScale)) {
+                TvTheme { Root(voice, remote, playlistQuery, testVideo) }
+            }
+        }
     }
 
     override fun onDestroy() {

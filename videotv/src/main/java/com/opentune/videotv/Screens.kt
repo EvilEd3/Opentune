@@ -15,7 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -45,6 +48,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.opentune.data.account.AccountStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 
 /** A page's content as it arrives. */
@@ -131,11 +136,18 @@ class SearchState {
     var query by mutableStateOf("")
     var results by mutableStateOf<Load<List<Video>>>(Load.Done(emptyList()))
     var searched by mutableStateOf("")
+    /** What of the account's own library matches, shown first. */
+    var library by mutableStateOf(VideoFeed.LibraryHits(emptyList(), emptyList()))
 }
 
 /** Search as you type, music videos only. The TV's keyboard opens on the field. */
 @Composable
-fun SearchScreen(state: SearchState, pick: (Video) -> Unit, quickAdd: (Video) -> Unit) {
+fun SearchScreen(
+    state: SearchState,
+    pick: (Video) -> Unit,
+    quickAdd: (Video) -> Unit,
+    openPlaylist: (PlaylistCard) -> Unit,
+) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
@@ -143,10 +155,20 @@ fun SearchScreen(state: SearchState, pick: (Video) -> Unit, quickAdd: (Video) ->
     LaunchedEffect(state.query) {
         val q = state.query.trim()
         if (q == state.searched) return@LaunchedEffect
-        if (q.length < 2) { state.results = Load.Done(emptyList()); state.searched = q; return@LaunchedEffect }
+        if (q.length < 2) {
+            state.results = Load.Done(emptyList())
+            state.library = VideoFeed.LibraryHits(emptyList(), emptyList())
+            state.searched = q
+            return@LaunchedEffect
+        }
         delay(DEBOUNCE_MS)
         state.results = Load.Loading
-        state.results = try { Load.Done(VideoFeed.search(q)) } catch (e: CancellationException) { throw e } catch (_: Exception) { Load.Failed }
+        coroutineScope {
+            // The library and YouTube Music at once; the library is usually quicker.
+            val mine = async { runCatching { VideoFeed.searchLibrary(q) }.getOrNull() }
+            state.results = try { Load.Done(VideoFeed.search(q)) } catch (e: CancellationException) { throw e } catch (_: Exception) { Load.Failed }
+            state.library = mine.await() ?: VideoFeed.LibraryHits(emptyList(), emptyList())
+        }
         state.searched = q
     }
 
@@ -167,9 +189,10 @@ fun SearchScreen(state: SearchState, pick: (Video) -> Unit, quickAdd: (Video) ->
             Load.Loading -> TvNote("Searching…")
             Load.Failed -> TvNote("Couldn't search just now. Check the connection.")
             is Load.Done -> {
-                if (r.value.isEmpty() && state.query.trim().length >= 2 && state.searched == state.query.trim()) {
+                if (r.value.isEmpty() && state.library.isEmpty && state.query.trim().length >= 2 && state.searched == state.query.trim()) {
                     TvNote("No music videos found for “${state.query.trim()}”.")
                 }
+                val mine = state.library
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(4),
                     modifier = Modifier.fillMaxSize(),
@@ -177,6 +200,26 @@ fun SearchScreen(state: SearchState, pick: (Video) -> Unit, quickAdd: (Video) ->
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalArrangement = Arrangement.spacedBy(28.dp),
                 ) {
+                    if (!mine.isEmpty) {
+                        // From the account's own library, ahead of YouTube Music's results.
+                        item(span = { GridItemSpan(maxLineSpan) }, key = "library") {
+                            Column {
+                                Text("From your library", style = MaterialTheme.typography.titleLarge)
+                                LazyRow(
+                                    contentPadding = PaddingValues(vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                ) {
+                                    items(mine.songs, key = { "s" + it.videoId }) { song ->
+                                        VideoCard(song, onClick = { pick(song) }, onLongClick = { quickAdd(song) }, width = 240.dp)
+                                    }
+                                    items(mine.playlists, key = { "p" + it.browseId }) { card ->
+                                        Box(Modifier.width(150.dp)) { PlaylistTile(card, onClick = { openPlaylist(card) }) }
+                                    }
+                                }
+                                if (r.value.isNotEmpty()) Text("Music videos", style = MaterialTheme.typography.titleLarge)
+                            }
+                        }
+                    }
                     itemsIndexed(r.value, key = { _, v -> v.videoId }) { _, video ->
                         VideoCard(
                             video, onClick = { pick(video) }, onLongClick = { quickAdd(video) },
@@ -214,6 +257,21 @@ fun SettingsScreen(remote: TvRemote?, onPair: () -> Unit, onSignIn: () -> Unit) 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     VideoSettings.choices().forEach { q ->
                         TvPill(q.label, selected = VideoSettings.quality == q, onClick = { VideoSettings.chooseQuality(q) })
+                    }
+                }
+            }
+        }
+        item {
+            Column {
+                Text("Size", style = MaterialTheme.typography.headlineSmall)
+                Text(
+                    "How big everything on the screen is. Large is the size the app first had.",
+                    style = MaterialTheme.typography.bodySmall, color = TvColors.TextDim,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    UiSize.entries.forEach { size ->
+                        TvPill(size.label, selected = VideoSettings.size == size, onClick = { VideoSettings.chooseSize(size) })
                     }
                 }
             }

@@ -412,7 +412,7 @@ private fun Browse(
         Spacer(Modifier.height(4.dp))
         when (tab) {
             Tab.Home -> HomeScreen(rows, homeList, onRetry = onRetry, pick = pick, quickAdd = quickAdd, openPlaylist = openPlaylist)
-            Tab.Search -> SearchScreen(search, pick, quickAdd)
+            Tab.Search -> SearchScreen(search, pick, quickAdd, openPlaylist)
             Tab.Library -> LibraryScreen(library, onSignIn, pick, quickAdd, playAll, queueAll)
             Tab.Queue -> QueueScreen(session, onOpen = onQueueItem, onClearUpcoming = { session.clearUpcoming() })
             Tab.Settings -> SettingsScreen(remote, onPair, onSignIn)
