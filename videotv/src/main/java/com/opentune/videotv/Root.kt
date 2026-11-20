@@ -69,6 +69,7 @@ fun Root(
     remote: TvRemote? = null,
     playlistQuery: MutableStateFlow<String?> = MutableStateFlow(null),
     testVideo: MutableStateFlow<String?> = MutableStateFlow(null),
+    testSearch: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -197,6 +198,16 @@ fun Root(
             library.open = card
         }
         playlistQuery.value = null
+    }
+
+    // The automated test's way to the Search page, with something typed in.
+    val wantedSearch by testSearch.collectAsState()
+    LaunchedEffect(wantedSearch) {
+        val q = wantedSearch ?: return@LaunchedEffect
+        playing = false
+        tab = Tab.Search
+        search.query = q
+        testSearch.value = null
     }
 
     // The automated test's own clip: played like any video, so the controls can be tried on it.

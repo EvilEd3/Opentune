@@ -6,6 +6,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -352,5 +355,36 @@ object FocusMemory {
             { if (held == 0) runCatching { target.requestFocus() } },
             60,
         )
+    }
+}
+
+/**
+ * How a page of rows scrolls to the focused card: so the card's middle sits
+ * at a fixed height on the screen ([pivot] of the way down).
+ *
+ * The default only scrolls when the card pokes off the screen, by as little
+ * as it can; and a focused card grows a little (the lift), so while that ran
+ * the page was nudged a few pixels at every move along a row — the jumping.
+ * The middle of a card doesn't move as it grows, so moving along a row now
+ * never scrolls the page, and moving between rows always lands the row in
+ * the same place.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+class PivotBringIntoViewSpec(private val pivot: Float = 0.45f) : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+        (offset + size / 2f) - containerSize * pivot
+}
+
+/**
+ * A page of rows ([content]) that scrolls by [PivotBringIntoViewSpec], while
+ * the rows inside it keep the ordinary sideways scrolling.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PivotScroll(content: @Composable (rows: @Composable (@Composable () -> Unit) -> Unit) -> Unit) {
+    val ordinary = LocalBringIntoViewSpec.current
+    val pivot = remember { PivotBringIntoViewSpec() }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides pivot) {
+        content { row -> CompositionLocalProvider(LocalBringIntoViewSpec provides ordinary) { row() } }
     }
 }

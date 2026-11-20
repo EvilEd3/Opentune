@@ -42,6 +42,27 @@ sleep 40
 shot 01-home
 alive home
 
+say "== 1a. Home at each size (Settings > Size)"
+for size in Small Large Medium; do
+  adb shell "am start -n $PKG/.MainActivity --es opentune.test.size $size" >/dev/null
+  sleep 3
+  shot "01a-home-size-$size"
+done
+
+say "== 1c. moving along a row must not move the page: a screenshot after each Right"
+key DPAD_DOWN DPAD_DOWN DPAD_DOWN
+sleep 1.5
+shot row-move-0
+for i in 1 2 3 4 5 6; do
+  adb shell input keyevent KEYCODE_DPAD_RIGHT
+  sleep 0.35
+  shot "row-move-$i-early"
+  sleep 0.9
+  shot "row-move-$i"
+done
+key DPAD_UP DPAD_UP DPAD_UP DPAD_UP DPAD_UP
+sleep 1
+
 say "== 1b. Back on Home asks before leaving (expect: Leave OpenTune Videos? / Exit / Cancel)"
 key BACK
 sleep 1.5
@@ -181,11 +202,33 @@ if [ -n "$CLIP" ] && [ -f "$CLIP" ]; then
   shot 29-back-in-full-screen
   sleep 5
   shot 30-full-screen-5s-later
+  say "-- the controls' bottom row: Wrong video? beside the settings gear"
+  key DPAD_CENTER
+  sleep 1.5
+  key DPAD_DOWN DPAD_DOWN
+  sleep 0.5
+  shot 31-controls-bottom-row
+  key DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_RIGHT DPAD_LEFT
+  sleep 0.5
+  shot 32-on-wrong-video-button
+  key DPAD_CENTER
+  sleep 5
+  shot 33-wrong-video-chooser
+  key BACK
+  sleep 2
+  shot 34-after-chooser-closed
   alive clip-end
   adb logcat -d 2>/dev/null | grep "test:" | sed 's/^.*test: /[player] /' >> "$OUT/summary.txt"
   grep '^\[player\]' "$OUT/summary.txt" | tail -60
   kill "$SERVER" 2>/dev/null
 fi
+
+say "== 12. Search: the status lines (signed out here)"
+adb shell "am start -n $PKG/.MainActivity --es opentune.test.search 'adele hello'" >/dev/null
+sleep 1.5
+shot 40-search-searching
+sleep 8
+shot 41-search-results
 
 say "== logs"
 adb logcat -d -b crash >> "$OUT/crash.txt" 2>/dev/null

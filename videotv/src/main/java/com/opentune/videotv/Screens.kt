@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.opentune.data.account.AccountStore
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 
@@ -109,19 +109,24 @@ fun HomeScreen(
             TvNote("Couldn't load videos. Check the connection.")
             TvButton("Try again", onRetry, icon = Icons.Rounded.Refresh, modifier = Modifier.padding(horizontal = TvSafe.Horizontal))
         }
-        is Load.Done -> LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 56.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
-        ) {
-            itemsIndexed(rows.value, key = { _, row -> row.title }) { _, row ->
-                TvShelf(row.title) {
-                    itemsIndexed(row.videos, key = { _, v -> v.videoId }) { _, video ->
-                        VideoCard(video, onClick = { pick(video) }, onLongClick = { quickAdd(video) })
-                    }
-                    itemsIndexed(row.playlists, key = { _, p -> p.browseId }) { _, card ->
-                        Box(Modifier.width(200.dp)) { PlaylistTile(card, onClick = { openPlaylist(card) }) }
+        // Scrolls by the focused card's middle, so moving along a row never moves the page.
+        is Load.Done -> PivotScroll { ordinary ->
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 240.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+            ) {
+                itemsIndexed(rows.value, key = { _, row -> row.title }) { _, row ->
+                    ordinary {
+                        TvShelf(row.title) {
+                            itemsIndexed(row.videos, key = { _, v -> v.videoId }) { _, video ->
+                                VideoCard(video, onClick = { pick(video) }, onLongClick = { quickAdd(video) })
+                            }
+                            itemsIndexed(row.playlists, key = { _, p -> p.browseId }) { _, card ->
+                                Box(Modifier.width(200.dp)) { PlaylistTile(card, onClick = { openPlaylist(card) }) }
+                            }
+                        }
                     }
                 }
             }
@@ -136,11 +141,16 @@ class SearchState {
     var query by mutableStateOf("")
     var results by mutableStateOf<Load<List<Video>>>(Load.Done(emptyList()))
     var searched by mutableStateOf("")
-    /** What of the account's own library matches, shown first. */
-    var library by mutableStateOf(VideoFeed.LibraryHits(emptyList(), emptyList()))
+    /** What of the account's own library matches; null when there's no account to search. */
+    var library by mutableStateOf<Load<VideoFeed.LibraryHits>?>(null)
 }
 
-/** Search as you type, music videos only. The TV's keyboard opens on the field. */
+/**
+ * Search as you type: the account's own library (its playlists' songs and
+ * the playlists themselves) first, then YouTube Music's music videos. Each
+ * says how it's getting on — searching, nothing found, couldn't search — on
+ * its own, as the library can take a few seconds the first time.
+ */
 @Composable
 fun SearchScreen(
     state: SearchState,
@@ -150,86 +160,118 @@ fun SearchScreen(
 ) {
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val signedIn by AccountStore.signedIn.collectAsState()
 
     LaunchedEffect(Unit) { if (state.query.isBlank()) runCatching { focus.requestFocus() } }
-    LaunchedEffect(state.query) {
+    LaunchedEffect(state.query, signedIn) {
         val q = state.query.trim()
         if (q == state.searched) return@LaunchedEffect
         if (q.length < 2) {
             state.results = Load.Done(emptyList())
-            state.library = VideoFeed.LibraryHits(emptyList(), emptyList())
+            state.library = null
             state.searched = q
             return@LaunchedEffect
         }
         delay(DEBOUNCE_MS)
-        state.results = Load.Loading
-        coroutineScope {
-            // The library and YouTube Music at once; the library is usually quicker.
-            val mine = async { runCatching { VideoFeed.searchLibrary(q) }.getOrNull() }
-            state.results = try { Load.Done(VideoFeed.search(q)) } catch (e: CancellationException) { throw e } catch (_: Exception) { Load.Failed }
-            state.library = mine.await() ?: VideoFeed.LibraryHits(emptyList(), emptyList())
-        }
         state.searched = q
+        state.results = Load.Loading
+        state.library = if (signedIn) Load.Loading else null
+        coroutineScope {
+            // Both at once, each shown as soon as it's in.
+            if (signedIn) {
+                launch {
+                    state.library = try {
+                        Load.Done(VideoFeed.searchLibrary(q))
+                    } catch (e: CancellationException) { throw e } catch (_: Exception) { Load.Failed }
+                }
+            }
+            launch {
+                state.results = try {
+                    Load.Done(VideoFeed.search(q))
+                } catch (e: CancellationException) { throw e } catch (_: Exception) { Load.Failed }
+            }
+        }
     }
 
+    val q = state.query.trim()
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = state.query,
             onValueChange = { state.query = it },
             modifier = Modifier.fillMaxWidth().padding(horizontal = TvSafe.Horizontal).focusRequester(focus),
-            placeholder = { Text("Search music videos") },
+            placeholder = { Text(if (signedIn) "Search your library and music videos" else "Search music videos") },
             leadingIcon = { Icon(Icons.Rounded.Search, null) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
             textStyle = MaterialTheme.typography.bodyLarge,
         )
-        Spacer(Modifier.height(16.dp))
-        when (val r = state.results) {
-            Load.Loading -> TvNote("Searching…")
-            Load.Failed -> TvNote("Couldn't search just now. Check the connection.")
-            is Load.Done -> {
-                if (r.value.isEmpty() && state.library.isEmpty && state.query.trim().length >= 2 && state.searched == state.query.trim()) {
-                    TvNote("No music videos found for “${state.query.trim()}”.")
-                }
-                val mine = state.library
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = TvSafe.Horizontal, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(28.dp),
-                ) {
-                    if (!mine.isEmpty) {
-                        // From the account's own library, ahead of YouTube Music's results.
-                        item(span = { GridItemSpan(maxLineSpan) }, key = "library") {
-                            Column {
-                                Text("From your library", style = MaterialTheme.typography.titleLarge)
-                                LazyRow(
-                                    contentPadding = PaddingValues(vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                                ) {
-                                    items(mine.songs, key = { "s" + it.videoId }) { song ->
-                                        VideoCard(song, onClick = { pick(song) }, onLongClick = { quickAdd(song) }, width = 240.dp)
-                                    }
-                                    items(mine.playlists, key = { "p" + it.browseId }) { card ->
-                                        Box(Modifier.width(150.dp)) { PlaylistTile(card, onClick = { openPlaylist(card) }) }
-                                    }
+        Spacer(Modifier.height(8.dp))
+        if (q.length < 2) {
+            TvNote(if (signedIn) "Type to search your library and YouTube Music's music videos." else "Type to search music videos. Sign in (Library) to search your own playlists too.")
+            return@Column
+        }
+        val results = state.results
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = TvSafe.Horizontal, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            // ---- Your library ----
+            item(span = { GridItemSpan(maxLineSpan) }, key = "library") {
+                Column {
+                    Text("Your library", style = MaterialTheme.typography.titleLarge)
+                    when (val mine = state.library) {
+                        null -> SearchStatus("Not signed in: sign in from Library to search your own playlists too.")
+                        Load.Loading -> SearchStatus("Searching your library…")
+                        Load.Failed -> SearchStatus("Couldn't search your library just now.")
+                        is Load.Done -> if (mine.value.isEmpty) {
+                            SearchStatus("No results in your library for “$q”.")
+                        } else {
+                            LazyRow(
+                                contentPadding = PaddingValues(vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            ) {
+                                items(mine.value.songs, key = { "s" + it.videoId }) { song ->
+                                    VideoCard(song, onClick = { pick(song) }, onLongClick = { quickAdd(song) }, width = 240.dp)
                                 }
-                                if (r.value.isNotEmpty()) Text("Music videos", style = MaterialTheme.typography.titleLarge)
+                                items(mine.value.playlists, key = { "p" + it.browseId }) { card ->
+                                    Box(Modifier.width(150.dp)) { PlaylistTile(card, onClick = { openPlaylist(card) }) }
+                                }
                             }
                         }
                     }
-                    itemsIndexed(r.value, key = { _, v -> v.videoId }) { _, video ->
-                        VideoCard(
-                            video, onClick = { pick(video) }, onLongClick = { quickAdd(video) },
-                            width = Dp.Unspecified, modifier = Modifier.fillMaxWidth(),
-                        )
+                }
+            }
+            // ---- YouTube Music ----
+            item(span = { GridItemSpan(maxLineSpan) }, key = "videos-header") {
+                Column {
+                    Text("Music videos", style = MaterialTheme.typography.titleLarge)
+                    when (results) {
+                        Load.Loading -> SearchStatus("Searching YouTube Music…")
+                        Load.Failed -> SearchStatus("Couldn't search YouTube Music just now. Check the connection.")
+                        is Load.Done -> if (results.value.isEmpty()) SearchStatus("No music videos found for “$q”.")
                     }
+                }
+            }
+            if (results is Load.Done) {
+                itemsIndexed(results.value, key = { _, v -> v.videoId }) { _, video ->
+                    VideoCard(
+                        video, onClick = { pick(video) }, onLongClick = { quickAdd(video) },
+                        width = Dp.Unspecified, modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }
     }
+}
+
+/** A line under a search heading: how that search is getting on. */
+@Composable
+private fun SearchStatus(text: String) {
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = TvColors.TextDim, modifier = Modifier.padding(vertical = 8.dp))
 }
 
 private const val DEBOUNCE_MS = 450L

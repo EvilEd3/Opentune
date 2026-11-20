@@ -7,6 +7,8 @@ import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import com.opentune.data.remote.PairedPhones
@@ -23,6 +25,9 @@ class MainActivity : ComponentActivity() {
      */
     private val playlistQuery = MutableStateFlow<String?>(null)
 
+    /** A search to show (`--es opentune.test.search …`): the automated test's way to the Search page. */
+    private val testSearch = MutableStateFlow<String?>(null)
+
     /** A file to play as a video: the automated test's own clip (`--es opentune.test.video_url …`). */
     private val testVideo = MutableStateFlow<String?>(null)
     private lateinit var remote: TvRemote
@@ -32,6 +37,8 @@ class MainActivity : ComponentActivity() {
         voice.value = spokenQuery(intent)
         playlistQuery.value = intent?.getStringExtra(EXTRA_PLAYLIST_QUERY)
         testVideo.value = intent?.getStringExtra(EXTRA_TEST_VIDEO)
+        testSize(intent)
+        testSearch.value = intent?.getStringExtra(EXTRA_TEST_SEARCH)
         // Paired phones find this TV and control it for as long as the app is open here.
         remote = TvRemote(this, PairedPhones(PrefsStorage(this, "remote_phones")))
         remote.start()
@@ -40,7 +47,7 @@ class MainActivity : ComponentActivity() {
             val base = LocalDensity.current
             val scale = VideoSettings.size.scale
             CompositionLocalProvider(LocalDensity provides Density(base.density * scale, base.fontScale)) {
-                TvTheme { Root(voice, remote, playlistQuery, testVideo) }
+                TvTheme { Root(voice, remote, playlistQuery, testVideo, testSearch) }
             }
         }
     }
@@ -59,11 +66,20 @@ class MainActivity : ComponentActivity() {
         spokenQuery(intent)?.let { voice.value = it }
         intent.getStringExtra(EXTRA_PLAYLIST_QUERY)?.let { playlistQuery.value = it }
         intent.getStringExtra(EXTRA_TEST_VIDEO)?.let { testVideo.value = it }
+        intent.getStringExtra(EXTRA_TEST_SEARCH)?.let { testSearch.value = it }
+        testSize(intent)
     }
 
     override fun onStop() {
         super.onStop()
         com.opentune.data.Core.flush()
+    }
+
+    /** The automated test sets the size directly (`--es opentune.test.size Small`). */
+    private fun testSize(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_TEST_SIZE)
+            ?.let { name -> UiSize.entries.firstOrNull { it.name.equals(name, ignoreCase = true) } }
+            ?.let { VideoSettings.chooseSize(it) }
     }
 
     private fun spokenQuery(intent: Intent?): String? =
@@ -73,11 +89,13 @@ class MainActivity : ComponentActivity() {
 
 private const val EXTRA_PLAYLIST_QUERY = "opentune.test.playlist_query"
 private const val EXTRA_TEST_VIDEO = "opentune.test.video_url"
+private const val EXTRA_TEST_SIZE = "opentune.test.size"
+private const val EXTRA_TEST_SEARCH = "opentune.test.search"
 
 /** A screen's first look at a key, before the focused view gets it (see [MainActivity.dispatchKeyEvent]). */
 object KeyHook {
     var handler: ((android.view.KeyEvent) -> Boolean)? = null
 
     /** Menus open over the screen: while any is, keys go to the menu, not the [handler]. */
-    var menus = 0
+    var menus by androidx.compose.runtime.mutableIntStateOf(0)
 }

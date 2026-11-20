@@ -21,8 +21,8 @@ enum class VideoQuality(val label: String, val maxHeight: Int) {
 
 /** How big everything on screen is drawn. Large is the size the app first had. */
 enum class UiSize(val label: String, val scale: Float) {
-    Small("Small", 0.78f),
-    Medium("Medium", 0.88f),
+    Small("Small", 0.65f),
+    Medium("Medium", 0.8f),
     Large("Large", 1f),
 }
 

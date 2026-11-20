@@ -82,6 +82,7 @@ fun PlayerScreen(
     var view by remember { mutableStateOf<PlayerView?>(null) }
     /** The queue item held down in the panel: its menu is open. */
     var holding by remember { mutableStateOf<Int?>(null) }
+    val fixCurrent by rememberUpdatedState { session.current?.let(onFix) }
 
     BackHandler {
         val v = view
@@ -145,6 +146,15 @@ fun PlayerScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    // A menu over the player (Wrong video?, Add to a playlist…) closed: focus back to the video.
+    val menusOpen = KeyHook.menus
+    LaunchedEffect(menusOpen) {
+        if (menusOpen == 0 && !panel) {
+            delay(90)
+            view?.requestFocus()
+        }
+    }
+
     // With the panel shut, focus goes back to the video so the remote drives it again.
     LaunchedEffect(panel) {
         val v = view ?: return@LaunchedEffect
@@ -183,7 +193,11 @@ fun PlayerScreen(
                     // (three minutes, on an hour-long one).
                     findViewById<DefaultTimeBar>(androidx.media3.ui.R.id.exo_progress)?.setKeyTimeIncrement(SEEK_STEP_MS)
                     view = this
-                    post { requestFocus(); showController() }
+                    post {
+                        addWrongVideoButton(this) { fixCurrent() }
+                        requestFocus()
+                        showController()
+                    }
                 }
             },
             update = { v ->
@@ -351,7 +365,7 @@ private fun UpNextPanel(
             } else {
                 TvButton("Close", onClose, focusRequester = firstButton)
             }
-            if (current != null && current.songId != null) TvButton("Wrong video?", { onFix(current) })
+            if (current != null) TvButton("Wrong video?", { onFix(current) })
             if (upcoming.isNotEmpty()) TvButton("Clear up next", { session.clearUpcoming() })
         }
         if (upcoming.isNotEmpty()) {
@@ -410,6 +424,35 @@ private fun clock(ms: Long): String {
     val sec = total % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, sec) else "%d:%02d".format(m, sec)
 }
+
+/**
+ * Adds "Wrong video?" to the controls' bottom-right buttons, beside the
+ * settings gear: choose another video for what's playing, without leaving it.
+ * Made like its neighbours (same size, background and padding), so it looks
+ * and moves under the remote's focus like them.
+ */
+@OptIn(UnstableApi::class)
+private fun addWrongVideoButton(view: PlayerView, onClick: () -> Unit) {
+    val gear = view.findViewById<View>(androidx.media3.ui.R.id.exo_settings) ?: return
+    val row = gear.parent as? ViewGroup ?: return
+    if (row.findViewWithTag<View>(WRONG_VIDEO_TAG) != null) return
+    val button = android.widget.ImageButton(view.context).apply {
+        tag = WRONG_VIDEO_TAG
+        setImageResource(R.drawable.ic_wrong_video)
+        contentDescription = "Wrong video? Choose another"
+        background = gear.background?.constantState?.newDrawable()?.mutate()
+        setPadding(gear.paddingLeft, gear.paddingTop, gear.paddingRight, gear.paddingBottom)
+        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+        isFocusable = true
+        setOnClickListener { onClick() }
+    }
+    val params = (gear.layoutParams as? android.widget.LinearLayout.LayoutParams)
+        ?.let { android.widget.LinearLayout.LayoutParams(it) }
+        ?: ViewGroup.LayoutParams(gear.layoutParams)
+    row.addView(button, row.indexOfChild(gear), params)
+}
+
+private const val WRONG_VIDEO_TAG = "opentune.wrong_video"
 
 /** Puts focus on the controls' Play/Pause button once they're laid out. */
 @OptIn(UnstableApi::class)
