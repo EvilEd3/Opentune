@@ -1,0 +1,24 @@
+[home-scroll-nothing-playing] Total frames rendered: 67
+[home-scroll-nothing-playing] Janky frames: 65 (97.01%)
+[home-scroll-nothing-playing] Janky frames (legacy): 67 (100.00%)
+[home-scroll-nothing-playing] 50th percentile: 81ms
+[home-scroll-nothing-playing] 90th percentile: 150ms
+[home-scroll-nothing-playing] 99th percentile: 250ms
+[home-scroll-while-playing] Total frames rendered: 28
+[home-scroll-while-playing] Janky frames: 20 (71.43%)
+[home-scroll-while-playing] Janky frames (legacy): 15 (53.57%)
+[home-scroll-while-playing] 50th percentile: 34ms
+[home-scroll-while-playing] 90th percentile: 101ms
+[home-scroll-while-playing] 99th percentile: 200ms
+[playlist-scroll-while-playing] Total frames rendered: 56
+[playlist-scroll-while-playing] Janky frames: 47 (83.93%)
+[playlist-scroll-while-playing] Janky frames (legacy): 56 (100.00%)
+[playlist-scroll-while-playing] 50th percentile: 65ms
+[playlist-scroll-while-playing] 90th percentile: 101ms
+[playlist-scroll-while-playing] 99th percentile: 150ms
+[pages-scroll-while-clip-plays] Total frames rendered: 52
+[pages-scroll-while-clip-plays] Janky frames: 51 (98.08%)
+[pages-scroll-while-clip-plays] Janky frames (legacy): 52 (100.00%)
+[pages-scroll-while-clip-plays] 50th percentile: 117ms
+[pages-scroll-while-clip-plays] 90th percentile: 150ms
+[pages-scroll-while-clip-plays] 99th percentile: 200ms

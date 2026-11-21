@@ -1,0 +1,15 @@
+11-21 00:10:01.069  3065  3065 D OpenTune: acting as channel pageId=none authUser=as-is (override=false)
+11-21 00:10:01.807   521   774 I serviceDiscovery: [MdnsAdvertiser] Adding service name: OpenTune Videos on sdk_gphone64_x86_64, type: _opentune-tv._tcp, hostAddresses: , port: 47731, network: null, txtRecord: tv=160ee5a4c14802a8 with ID 2 and subtype null
+11-21 00:10:02.600  3065  3065 I ExoPlayerImpl: Init c8ffb87 [AndroidXMedia3/1.11.0] [emu64xa, sdk_gphone64_x86_64, Google, 34]
+11-21 00:11:43.622  6143  6143 I AndroidRuntime: VM exiting with result code 0, cleanup skipped.
+11-21 00:11:44.986  3065  3523 W OpenTuneVideo: InnerTubeX gave no video: Unable to fetch stream data from YouTube.
+11-21 00:11:45.333  3065  3527 W OpenTuneVideo: ANDROID_VR gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+11-21 00:11:45.512  3065  3523 W OpenTuneVideo: TVHTML5 gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+11-21 00:11:45.693  3065  3534 W OpenTuneVideo: IOS gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+11-21 00:11:46.010  3065  3534 W OpenTuneVideo: ANDROID_MUSIC gave no video for suAR1PYFNYA: Track unavailable: Please sign in
+11-21 00:11:46.335  3065  3534 W OpenTuneVideo: ANDROID_VR gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+11-21 00:11:46.704  3065  3534 W OpenTuneVideo: IOS gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+11-21 00:11:46.718  3065  3534 W OpenTune: no signature timestamp: Could not fetch embedded watch page
+11-21 00:11:47.149  3065  3303 W OpenTuneVideo: ANDROID gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+11-21 00:11:48.022  3065  3303 W OpenTuneVideo: NewPipe gave no video: YouTube probably temporarily blocked anonymous watch access with this IP , got error LOGIN_REQUIRED: "Sign in to confirm that you're not a bot"
+11-21 00:11:48.023  3065  3065 W OpenTuneVideo: no stream for suAR1PYFNYA: No playable stream (InnerTubeX: Unable to fetch stream data from YouTube.; ANDROID_VR: Track unavailable: Sign in to confirm yo; TVHTML5: Track unavailable: Sign in to confirm yo; IOS: Track unavailable: Sign in to confirm yo; ANDROID_MUSIC: Track unavailable: Please sign in; ANDROID_VR: Track unavailable: Sign in to confirm yo; IOS: Track unavailable: Sign in to confirm yo; ANDROID: Track unavailable: Sign in to confirm yo; NewPipe: YouTube probably temporarily blocked anonymous watch access )

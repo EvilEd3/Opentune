@@ -1,0 +1,125 @@
+== install
+Success
+== 1. launch, Home loads
+screenshot: 01-home
+[home] app running
+== 1a. Home at each size (Settings > Size)
+screenshot: 01a-home-size-Small
+screenshot: 01a-home-size-Large
+screenshot: 01a-home-size-Medium
+== 1c. moving along a row must not move the page: a screenshot after each Right
+screenshot: row-move-0
+screenshot: row-move-1-early
+screenshot: row-move-1
+screenshot: row-move-2-early
+screenshot: row-move-2
+screenshot: row-move-3-early
+screenshot: row-move-3
+screenshot: row-move-4-early
+screenshot: row-move-4
+screenshot: row-move-5-early
+screenshot: row-move-5
+screenshot: row-move-6-early
+screenshot: row-move-6
+== 1b. Back on Home asks before leaving (expect: Leave OpenTune Videos? / Exit / Cancel)
+screenshot: 01b-leave-confirm
+[after-cancel-leave] app running
+== 2. scroll Home, nothing playing (baseline smoothness)
+screenshot: 02-home-scrolled
+== 3. play a video (voice-search intent: search and play the first)
+screenshot: 03-player
+[player] app running
+screenshot: 04-player-controls-hidden
+== 4. Up next panel (Down with the controls hidden)
+screenshot: 05-up-next
+== 5. Back to the pages while it plays
+screenshot: 06-pages-while-playing
+[pages-while-playing] app running
+== 6. scroll Home while playing
+screenshot: 07-home-scrolled-while-playing
+== 7. a playlist page (public playlist, found by search)
+screenshot: 08-playlist
+screenshot: 09-playlist-scrolled
+== 8. pick a track while playing: the menu, then Down x3 (must stay in the menu)
+screenshot: 10-menu
+screenshot: 11-menu-after-down
+-- OK on the 4th item (Wrong video? for a song; else Cancel)
+screenshot: 11b-video-chooser
+screenshot: 12-playlist-after-menu
+== 9. hold OK on a track: straight into the queue
+screenshot: 13-after-hold-ok
+== 10. Back: playlist -> Library -> Home -> asks (Back to the video / Exit)
+screenshot: 14-library-after-back
+screenshot: 14b-home-after-back
+screenshot: 14c-leave-confirm-while-playing
+screenshot: 15-back-to-full-screen
+[end] app running
+== logs (YouTube part)
+== 11. the player's controls, on a 20-minute test clip
+clip served on the emulator's 127.0.0.1:8099
+screenshot: 20-clip-playing
+screenshot: 21-clip-controls-hidden
+-- Right x3 (expect +30 s), then Left (expect -10 s)
+screenshot: 22-after-right-x3
+screenshot: 23-after-left
+-- OK with the controls hidden (expect: paused, controls up, focus on Play/Pause)
+screenshot: 24-after-ok
+-- OK again (expect: playing)
+screenshot: 25-after-ok-again
+-- Down to the time bar, Right x3 (expect about +30 s, not +3 min)
+screenshot: 26-time-bar-focused
+screenshot: 27-after-time-bar-x3
+-- leave to the pages while it plays
+screenshot: 28-pages-while-clip-plays
+-- Back to full screen through the leave question (expect: no pause, no jump)
+screenshot: 29-back-in-full-screen
+screenshot: 30-full-screen-5s-later
+-- the controls' bottom row: Wrong video? beside the settings gear
+screenshot: 31-controls-bottom-row
+screenshot: 32-on-wrong-video-button
+screenshot: 33-wrong-video-chooser
+screenshot: 34-after-chooser-closed
+[clip-end] app running
+[player] state=BUFFERING at 0s
+[player] state=READY at 0s
+[player] isPlaying=true at 0s
+[player] state=BUFFERING at 30s
+[player] isPlaying=false at 30s
+[player] seek 10s to 30s
+[player] state=READY at 30s
+[player] isPlaying=true at 30s
+[player] state=BUFFERING at 40s
+[player] isPlaying=false at 40s
+[player] seek 10s to 40s
+[player] state=READY at 40s
+[player] isPlaying=true at 40s
+[player] state=BUFFERING at 51s
+[player] isPlaying=false at 51s
+[player] seek 10s to 51s
+[player] state=READY at 51s
+[player] isPlaying=true at 51s
+[player] state=BUFFERING at 43s
+[player] isPlaying=false at 43s
+[player] seek -10s to 43s
+[player] state=READY at 43s
+[player] isPlaying=true at 43s
+[player] isPlaying=false at 49s
+[player] pause at 49s
+[player] isPlaying=true at 49s
+[player] isPlaying=false at 99s
+[player] pause at 99s
+== 12. Search: the status lines (signed out here)
+screenshot: 40-search-searching
+screenshot: 41-search-results
+== logs
+no crashes logged
+[playback] 11-21 00:11:44.986  3065  3523 W OpenTuneVideo: InnerTubeX gave no video: Unable to fetch stream data from YouTube.
+[playback] 11-21 00:11:45.333  3065  3527 W OpenTuneVideo: ANDROID_VR gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+[playback] 11-21 00:11:45.512  3065  3523 W OpenTuneVideo: TVHTML5 gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+[playback] 11-21 00:11:45.693  3065  3534 W OpenTuneVideo: IOS gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+[playback] 11-21 00:11:46.010  3065  3534 W OpenTuneVideo: ANDROID_MUSIC gave no video for suAR1PYFNYA: Track unavailable: Please sign in
+[playback] 11-21 00:11:46.335  3065  3534 W OpenTuneVideo: ANDROID_VR gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+[playback] 11-21 00:11:46.704  3065  3534 W OpenTuneVideo: IOS gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+[playback] 11-21 00:11:47.149  3065  3303 W OpenTuneVideo: ANDROID gave no video for suAR1PYFNYA: Track unavailable: Sign in to confirm you’re not a bot
+[playback] 11-21 00:11:48.022  3065  3303 W OpenTuneVideo: NewPipe gave no video: YouTube probably temporarily blocked anonymous watch access with this IP , got error LOGIN_REQUIRED: "Sign in to confirm that you're not a bot"
+[playback] 11-21 00:11:48.023  3065  3065 W OpenTuneVideo: no stream for suAR1PYFNYA: No playable stream (InnerTubeX: Unable to fetch stream data from YouTube.; ANDROID_VR: Track unavailable: Sign in to confirm yo; TVHTML5: Track unavailable: Sign in to confirm yo; IOS: Track unavailable: Sign in to confirm yo; ANDROID_MUSIC: Track unavailable: Please sign in; ANDROID_VR: Track unavailable: Sign in to confirm yo; IOS: Track unavailable: Sign in to confirm yo; ANDROID: Track unavailable: Sign in to confirm yo; NewPipe: YouTube probably temporarily blocked anonymous watch access )
